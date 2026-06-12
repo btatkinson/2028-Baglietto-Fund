@@ -1,17 +1,21 @@
 """
 webapp.py — password-protected web UI for the wc_props pipeline (Railway-ready).
 
-Routes (all behind HTTP Basic auth, credentials from env):
-  GET  /         the latest report (out/report.html), or redirect to /control
-  GET  /control  paste/upload underdog.json + prizepicks.json, run the pipeline
-  POST /run      save payloads if provided, run pipeline, show the log
-  GET  /healthz  unauthenticated liveness probe
+The pipeline runs as a BACKGROUND JOB: POST /run saves the payloads and returns
+immediately; /status polls /status.json until the job finishes. This keeps every
+HTTP request fast so Railway's edge proxy never kills a long-running connection
+(the cause of ERR_HTTP2_PROTOCOL_ERROR when the capture ran inside the request).
+
+Routes (all behind HTTP Basic auth except /healthz):
+  GET  /            latest report (out/report.html), or redirect to /control
+  GET  /control     paste/upload underdog.json + prizepicks.json, start a run
+  POST /run         save payloads, start background job, redirect to /status
+  GET  /status      live job page (auto-polls, links to report when done)
+  GET  /status.json job state for the poller
+  GET  /healthz     unauthenticated liveness probe
 
 Auth env vars: APP_PASSWORD (required — app refuses to serve without it),
 APP_USER (default "blake"). Set BETSAPI_TOKEN for live captures.
-
-Local:    flask --app webapp run        (or: python webapp.py)
-Railway:  Dockerfile runs gunicorn; set env vars in the service settings.
 """
 from __future__ import annotations
 
@@ -21,7 +25,9 @@ import io
 import json
 import os
 import secrets
+import threading
 import traceback
+from datetime import datetime, timezone
 from functools import wraps
 
 from flask import Flask, Response, redirect, request
@@ -58,6 +64,46 @@ def requires_auth(f):
     return wrapper
 
 
+# ----------------------------- background job -----------------------------
+_JOB_LOCK = threading.Lock()
+JOB = {"status": "idle",        # idle | running | done | error
+       "log": "", "error": "",
+       "started": None, "finished": None}
+
+
+class _Tee(io.StringIO):
+    """StringIO that mirrors writes into JOB['log'] so /status.json streams live."""
+    def write(self, s):
+        super().write(s)
+        JOB["log"] += s
+        return len(s)
+
+
+def _run_job(scrape: bool):
+    buf = _Tee()
+    try:
+        with contextlib.redirect_stdout(buf):
+            pipeline(scrape=scrape)
+        JOB["status"] = "done"
+    except Exception as e:
+        JOB["status"] = "error"
+        JOB["error"] = str(e)
+        JOB["log"] += "\n" + traceback.format_exc(limit=6)
+    finally:
+        JOB["finished"] = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+
+
+def _start_job(scrape: bool) -> bool:
+    with _JOB_LOCK:
+        if JOB["status"] == "running":
+            return False
+        JOB.update(status="running", log="", error="",
+                   started=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
+                   finished=None)
+        threading.Thread(target=_run_job, args=(scrape,), daemon=True).start()
+        return True
+
+
 # ----------------------------- pages -----------------------------
 _NAV = ("<div style=\"position:fixed;right:14px;bottom:14px;z-index:99\">"
         "<a href='/control' style='background:#1f6feb;color:#fff;text-decoration:none;"
@@ -80,6 +126,8 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>wc_props — 
         overflow:auto; font-size:12px; white-space:pre-wrap; }}
  .field {{ margin:18px 0 6px; font-weight:600; }}
  .ok {{ color:#5ad19a; }} .err {{ color:#f08a96; }}
+ .spin {{ display:inline-block; animation:r 1s linear infinite; }}
+ @keyframes r {{ to {{ transform:rotate(360deg); }} }}
 </style></head><body><div class="box">{body}</div></body></html>"""
 
 
@@ -110,8 +158,11 @@ def index():
 @app.get("/control")
 @requires_auth
 def control():
+    running = ("<p class='hint'>⚠ a run is currently in progress — "
+               "<a href='/status'>watch it</a>.</p>" if JOB["status"] == "running" else "")
     body = f"""
 <h1>wc_props — control panel</h1>
+{running}
 <p class="hint">Paste the raw API JSON (or upload the files), then run.
 Leave a box empty to keep the file already on the server.</p>
 <form method="post" action="/run" enctype="multipart/form-data">
@@ -130,8 +181,6 @@ Leave a box empty to keep the file already on the server.</p>
 
 
 def _save_payload(path, text, file_storage):
-    """Save pasted text or an uploaded file to `path` (validated as JSON).
-    Returns a status string or None if nothing was provided."""
     raw = None
     if file_storage and file_storage.filename:
         raw = file_storage.read().decode("utf-8-sig", errors="replace")
@@ -151,28 +200,66 @@ def _save_payload(path, text, file_storage):
 @app.post("/run")
 @requires_auth
 def run_route():
-    notes = []
     try:
+        notes = []
         for path, tkey, fkey in ((config.UNDERDOG_JSON, "underdog_text", "underdog_file"),
                                  (config.PRIZEPICKS_JSON, "prizepicks_text", "prizepicks_file")):
-            msg = _save_payload(path, request.form.get(tkey),
-                                request.files.get(fkey))
+            msg = _save_payload(path, request.form.get(tkey), request.files.get(fkey))
             if msg:
                 notes.append(msg)
-        scrape = bool(request.form.get("scrape"))
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            pipeline(scrape=scrape)
-        log = "\n".join(notes + ["", buf.getvalue()])
-        body = (f"<h1>Run complete</h1><pre>{html.escape(log)}</pre>"
-                f"<p><a href='/'>→ open the report</a> · <a href='/control'>run again</a></p>")
-        return _PAGE.format(title="run", body=body)
-    except Exception as e:
-        log = "\n".join(notes + ["", traceback.format_exc(limit=4)])
-        body = (f"<h1 class='err'>Run failed</h1><p>{html.escape(str(e))}</p>"
-                f"<pre>{html.escape(log)}</pre>"
+    except ValueError as e:
+        body = (f"<h1 class='err'>Bad payload</h1><p>{html.escape(str(e))}</p>"
                 f"<p><a href='/control'>← back</a></p>")
-        return _PAGE.format(title="error", body=body), 500
+        return _PAGE.format(title="error", body=body), 400
+
+    scrape = bool(request.form.get("scrape"))
+    if not _start_job(scrape):
+        body = ("<h1>Already running</h1><p>A run is in progress — "
+                "<a href='/status'>watch it</a>.</p>")
+        return _PAGE.format(title="busy", body=body), 409
+    if notes:
+        JOB["log"] = "\n".join(notes) + "\n\n" + JOB["log"]
+    return redirect("/status", code=303)
+
+
+@app.get("/status")
+@requires_auth
+def status_page():
+    body = """
+<h1 id="h">Run status</h1>
+<pre id="log">…</pre>
+<p id="links" class="hint"></p>
+<script>
+async function poll(){
+  try{
+    const r = await fetch('/status.json');
+    const j = await r.json();
+    document.getElementById('log').textContent = j.log || '(no output yet)';
+    const h = document.getElementById('h'), links = document.getElementById('links');
+    if(j.status === 'running'){
+      h.innerHTML = '<span class="spin">⟳</span> Running… (started ' + (j.started||'') + ')';
+      setTimeout(poll, 2000);
+    } else if(j.status === 'done'){
+      h.innerHTML = '<span class="ok">✓</span> Done (' + (j.finished||'') + ')';
+      links.innerHTML = '<a href="/">→ open the report</a> · <a href="/control">run again</a>';
+    } else if(j.status === 'error'){
+      h.innerHTML = '<span class="err">✗</span> Failed: ' + (j.error||'');
+      links.innerHTML = '<a href="/control">← back to control</a>';
+    } else {
+      h.textContent = 'No run yet';
+      links.innerHTML = '<a href="/control">← control panel</a>';
+    }
+  }catch(e){ setTimeout(poll, 3000); }
+}
+poll();
+</script>"""
+    return _PAGE.format(title="status", body=body)
+
+
+@app.get("/status.json")
+@requires_auth
+def status_json():
+    return {k: JOB[k] for k in ("status", "log", "error", "started", "finished")}
 
 
 if __name__ == "__main__":
