@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+import config
 import edge as edge_model
 from normalize import (norm_name, names_compatible, surname,
                        norm_country, country_display)

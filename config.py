@@ -34,8 +34,13 @@ BREAKEVEN_PP = float(os.environ.get("WCP_BREAKEVEN_PP", _BE_BOTH or "0.543"))
 # Edge cushion: extra required probability on top of the breakeven, as
 # insurance against bet365 being wrong / de-vig model error. Applied after
 # multiplier scaling: required p = breakeven/mult + cushion.
-# 0.015 puts the effective bars at ~55.1% (UD 3-power) and ~55.8% (PP 5-flex).
-EDGE_CUSHION = float(os.environ.get("WCP_EDGE_CUSHION", "0.015"))
+# Tiered by trust: the base cushion covers devig / measured-margin rows
+# (de-vig method ambiguity ~1pp + bet365 prop softness 1-3pp); the SOFT
+# cushion applies when the probability came from a neutrality-calibrated
+# margin or off-ladder extrapolation, which carry real model risk.
+# Base 0.03 puts the effective bars at ~56.6% (UD 3-power) / ~57.3% (PP 5-flex).
+EDGE_CUSHION = float(os.environ.get("WCP_EDGE_CUSHION", "0.03"))
+EDGE_CUSHION_SOFT = float(os.environ.get("WCP_EDGE_CUSHION_SOFT", "0.05"))
 
 # Lineup generation (structures defined in lineups.STRUCTURES)
 UD_STRUCTURE = os.environ.get("WCP_UD_STRUCTURE", "ud_power3")

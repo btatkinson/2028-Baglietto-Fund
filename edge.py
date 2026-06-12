@@ -148,14 +148,15 @@ def prob_over_at(ladder, dfs_line: float):
     below = [t for t in ladder if t[0] < dfs_line]
     above = [t for t in ladder if t[0] > dfs_line]
     if below and above:
-        (l0, p0, _), (l1, p1, _) = below[-1], above[0]
+        (l0, p0, m0), (l1, p1, m1) = below[-1], above[0]
         frac = (dfs_line - l0) / (l1 - l0)
-        return p0 + frac * (p1 - p0), "interp"
+        src = m0 if m0 == m1 else f"{m0}|{m1}"
+        return p0 + frac * (p1 - p0), f"interp[{src}]"
     if not below and not above:
         return None, "none"
-    # outside ladder range -> clamp to nearest endpoint (flagged)
-    nearest = above[0] if above else below[-1]
-    return nearest[1], "extrap"
+    # outside ladder range -> clamp to nearest endpoint (flagged, with source)
+    n_line, n_p, n_m = above[0] if above else below[-1]
+    return n_p, f"extrap[{n_m}]"
 
 
 def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=None):
@@ -174,6 +175,10 @@ def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=N
     if p_over is None:
         return None
     p_over = min(max(p_over, 0.0), 1.0)
+    # tiered cushion: soft tier for neutrality-calibrated or extrapolated probs
+    cushion = (config.EDGE_CUSHION_SOFT
+               if ("neut" in method or "extrap" in method)
+               else config.EDGE_CUSHION)
 
     cands = []
     for side, p_side, mult in (("OVER", p_over, over_mult),
@@ -186,7 +191,7 @@ def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=N
             m = 1.0
         if m != m or m <= 0:              # NaN / nonsense -> neutral
             m = 1.0
-        be = min(breakeven / m + config.EDGE_CUSHION, 0.999)
+        be = min(breakeven / m + cushion, 0.999)
         cands.append((side, p_side, p_side - be, be, m))
     if not cands:
         return None

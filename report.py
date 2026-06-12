@@ -137,7 +137,8 @@ def build_html(df: pd.DataFrame, meta: dict, lineups=None) -> str:
                  f"UD {meta.get('n_ud', 0)} · PP {meta.get('n_pp', 0)} · "
                  f"bet365 {meta.get('n_b365_players', 0)} player-stat rows · "
                  f"breakevens UD {config.BREAKEVEN_UD:.1%} / PP {config.BREAKEVEN_PP:.1%} "
-                 f"+ {config.EDGE_CUSHION:.1%} cushion · window {config.WINDOW_HOURS}h")
+                 f"+ {config.EDGE_CUSHION:.0%} cushion ({config.EDGE_CUSHION_SOFT:.0%} for neut/extrap) "
+                 f"· window {config.WINDOW_HOURS}h")
     margins_line = meta.get("margins") or ""
 
     return f"""<!doctype html><html><head><meta charset="utf-8">
