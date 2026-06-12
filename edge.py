@@ -158,16 +158,18 @@ def prob_over_at(ladder, dfs_line: float):
     return nearest[1], "extrap"
 
 
-def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0):
+def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=None):
     """Return edge info for a DFS line given a bet365 ladder.
 
-    over_mult/under_mult are the platform's payout multipliers for each side
-    (Underdog leg multipliers; PrizePicks standard = 1.0). Pass None for a side
-    the platform does NOT offer (e.g. UD one-way over lines) — that side is
-    never recommended. Multipliers stack multiplicatively into the entry
-    payout, so a leg at multiplier m breaks even at BREAKEVEN / m:
-    at the 0.5 baseline a 0.71x over needs ~70%, a 1.25x under needs 40%.
+    breakeven: the platform/structure per-leg breakeven (config.BREAKEVEN_UD /
+    BREAKEVEN_PP). over_mult/under_mult are the platform's payout multipliers
+    per side; None = side not offered (never recommended). Multipliers stack
+    multiplicatively into the entry payout, so the required probability is
+    breakeven/mult, plus config.EDGE_CUSHION as insurance against the bet365
+    de-vig model being wrong.
     """
+    if breakeven is None:
+        breakeven = 0.5
     p_over, method = prob_over_at(ladder, dfs_line)
     if p_over is None:
         return None
@@ -184,7 +186,7 @@ def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0):
             m = 1.0
         if m != m or m <= 0:              # NaN / nonsense -> neutral
             m = 1.0
-        be = min(config.BREAKEVEN / m, 0.999)
+        be = min(breakeven / m + config.EDGE_CUSHION, 0.999)
         cands.append((side, p_side, p_side - be, be, m))
     if not cands:
         return None

@@ -1,0 +1,148 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>WC Props — implied edge</title>
+<style>
+ :root { --bg:#0f1115; --card:#171a21; --line:#262b36; --txt:#e6e9ef; --dim:#8b93a7;
+          --pos:#1f7a4d; --posbg:#0f3322; --neg:#8a2f3a; }
+ * { box-sizing:border-box; }
+ body { margin:0; background:var(--bg); color:var(--txt);
+         font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+ header { padding:18px 22px; border-bottom:1px solid var(--line); }
+ h1 { margin:0 0 4px; font-size:18px; }
+ .meta { color:var(--dim); font-size:12px; }
+ .controls { padding:12px 22px; display:flex; gap:12px; align-items:center; }
+ input[type=text] { background:var(--card); border:1px solid var(--line); color:var(--txt);
+                     padding:7px 10px; border-radius:8px; min-width:240px; }
+ label { color:var(--dim); font-size:13px; display:flex; gap:6px; align-items:center; }
+ .games { padding:4px 22px 12px; display:flex; flex-wrap:wrap; gap:8px; }
+ .gamebtn { background:var(--card); border:1px solid var(--line); color:var(--dim);
+             padding:6px 11px; border-radius:999px; cursor:pointer; font-size:12px; }
+ .gamebtn:hover { color:var(--txt); border-color:#3a4150; }
+ .gamebtn.active { background:#1f6feb22; border-color:#1f6feb; color:#cfe0ff; font-weight:600; }
+ .platgrp { display:flex; gap:0; margin-left:auto; border:1px solid var(--line); border-radius:999px; overflow:hidden; }
+ .platbtn { background:var(--card); border:0; color:var(--dim); padding:6px 13px; cursor:pointer; font-size:12px; }
+ .platbtn.active { background:#1f6feb22; color:#cfe0ff; font-weight:600; }
+ .lineups { margin:6px 22px 14px; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+ .lineups summary { padding:10px 14px; cursor:pointer; font-weight:600; }
+ .hintc { color:var(--dim); font-weight:400; font-size:12px; }
+ .lwrap { display:flex; flex-wrap:wrap; gap:18px; padding:4px 14px 14px; }
+ .lcol { flex:1 1 320px; min-width:300px; }
+ .lcol h3 { font-size:14px; margin:8px 0; }
+ .card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-bottom:8px; background:var(--bg); }
+ .cardhead { display:flex; justify-content:space-between; color:var(--dim); font-size:12px; margin-bottom:6px; }
+ .cardmeta { color:#cdb46b; }
+ .leg { display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:2px 0; }
+ .legedge { color:#5ad19a; font-variant-numeric:tabular-nums; }
+ .wrap { padding:0 22px 40px; }
+ table { border-collapse:collapse; width:100%; }
+ th,td { padding:7px 10px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+ th { position:sticky; top:0; background:var(--card); cursor:pointer; user-select:none;
+       font-size:12px; color:var(--dim); }
+ td.num { text-align:right; font-variant-numeric:tabular-nums; }
+ .player { font-weight:600; }
+ .dim { color:var(--dim); } .small { font-size:12px; }
+ .play { font-weight:600; }
+ .edge.pos { color:#5ad19a; background:var(--posbg); }
+ .edge.neg { color:#f08a96; }
+ tr:hover td { background:#1c212b; }
+ .gap { color:#cdb46b; }
+ footer { color:var(--dim); font-size:12px; padding:0 22px 30px; }
+</style></head><body>
+<header>
+  <h1>World Cup Props — implied edge</h1>
+  <div class="meta">captured x · UD 10 · PP 10 · bet365 10 player-stat rows · breakevens UD 53.6% / PP 54.3% + 1.5% cushion · window 48h</div>
+  
+</header>
+<div class="controls">
+  <input id="q" type="text" placeholder="filter player / stat / team…" oninput="filt()">
+  <label><input type="checkbox" id="onlyb" onchange="filt()"> bet365-backed only</label>
+  <label><input type="checkbox" id="onlypos" onchange="filt()"> positive edge only</label>
+  <span class="platgrp">
+    <button class="platbtn active" data-p="all" onclick="setPlat(this)">All</button>
+    <button class="platbtn" data-p="ud" onclick="setPlat(this)">UD only</button>
+    <button class="platbtn" data-p="pp" onclick="setPlat(this)">PP only</button>
+  </span>
+</div>
+<div class="games">
+  <button id="allbtn" class="gamebtn active" onclick="clearMatch()">All games</button>
+  <button class="gamebtn" data-m="M0 v X0" onclick="setMatch(this)">M0 v X0</button><button class="gamebtn" data-m="M1 v X1" onclick="setMatch(this)">M1 v X1</button><button class="gamebtn" data-m="M2 v X2" onclick="setMatch(this)">M2 v X2</button><button class="gamebtn" data-m="M3 v X3" onclick="setMatch(this)">M3 v X3</button><button class="gamebtn" data-m="M4 v X4" onclick="setMatch(this)">M4 v X4</button><button class="gamebtn" data-m="M5 v X5" onclick="setMatch(this)">M5 v X5</button><button class="gamebtn" data-m="M6 v X6" onclick="setMatch(this)">M6 v X6</button><button class="gamebtn" data-m="M7 v X7" onclick="setMatch(this)">M7 v X7</button><button class="gamebtn" data-m="M8 v X8" onclick="setMatch(this)">M8 v X8</button><button class="gamebtn" data-m="M9 v X9" onclick="setMatch(this)">M9 v X9</button>
+</div>
+<details class='lineups' open><summary>Suggested lineups <span class='hintc'>(each leg ≤2 uses, no repeated pairings, no same-game legs)</span></summary><div class='lwrap'><div class='lcol'><h3>UD 3-Pick Power (6.5x) <span class='hintc'>(10 qualified legs)</span></h3><div class='card'><div class='cardhead'>#1<span class='cardmeta'>EV 1.53x · sweep 23%</span></div><div class='leg'><span>P0 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.5%</span></div><div class='leg'><span>P1 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.2%</span></div><div class='leg'><span>P2 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.9%</span></div></div><div class='card'><div class='cardhead'>#2<span class='cardmeta'>EV 1.47x · sweep 23%</span></div><div class='leg'><span>P1 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.2%</span></div><div class='leg'><span>P4 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.3%</span></div><div class='leg'><span>P6 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.7%</span></div></div><div class='card'><div class='cardhead'>#3<span class='cardmeta'>EV 1.46x · sweep 22%</span></div><div class='leg'><span>P3 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.6%</span></div><div class='leg'><span>P4 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.3%</span></div><div class='leg'><span>P5 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.0%</span></div></div><div class='card'><div class='cardhead'>#4<span class='cardmeta'>EV 1.46x · sweep 22%</span></div><div class='leg'><span>P9 — Shots <b>OVER 1.5</b></span><span class='legedge'>+2.8%</span></div><div class='leg'><span>P0 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.5%</span></div><div class='leg'><span>P3 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.6%</span></div></div><div class='card'><div class='cardhead'>#5<span class='cardmeta'>EV 1.45x · sweep 22%</span></div><div class='leg'><span>P2 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.9%</span></div><div class='leg'><span>P5 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.0%</span></div><div class='leg'><span>P7 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.4%</span></div></div><div class='card'><div class='cardhead'>#6<span class='cardmeta'>EV 1.40x · sweep 21%</span></div><div class='leg'><span>P6 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.7%</span></div><div class='leg'><span>P7 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.4%</span></div><div class='leg'><span>P8 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.1%</span></div></div></div><div class='lcol'><h3>PP 5-Pick Flex (10/2/0.4) <span class='hintc'>(10 qualified legs)</span></h3><div class='card'><div class='cardhead'>#1<span class='cardmeta'>EV 1.56x · sweep 9%</span></div><div class='leg'><span>P0 — Shots <b>OVER 1.5</b></span><span class='legedge'>+6.0%</span></div><div class='leg'><span>P1 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.7%</span></div><div class='leg'><span>P2 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.4%</span></div><div class='leg'><span>P3 — Shots <b>OVER 1.5</b></span><span class='legedge'>+5.1%</span></div><div class='leg'><span>P4 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.8%</span></div></div><div class='card'><div class='cardhead'>#2<span class='cardmeta'>EV 1.43x · sweep 8%</span></div><div class='leg'><span>P5 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.5%</span></div><div class='leg'><span>P6 — Shots <b>OVER 1.5</b></span><span class='legedge'>+4.2%</span></div><div class='leg'><span>P7 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.9%</span></div><div class='leg'><span>P8 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.6%</span></div><div class='leg'><span>P9 — Shots <b>OVER 1.5</b></span><span class='legedge'>+3.3%</span></div></div></div></div></details>
+<div class="wrap">
+<table id="t"><thead><tr><th onclick='sortBy(0)'>Player</th><th onclick='sortBy(1)'>Team</th><th onclick='sortBy(2)'>Opp</th><th onclick='sortBy(3)'>Stat</th><th onclick='sortBy(4)'>PP</th><th onclick='sortBy(5)'>UD</th><th onclick='sortBy(6)'>Gap</th><th onclick='sortBy(7)'>b365 lines</th><th onclick='sortBy(8)'>b365 P(o)</th><th onclick='sortBy(9)'>Best play</th><th onclick='sortBy(10)'>Edge</th><th onclick='sortBy(11)'>Method</th></tr></thead>
+<tbody>
+<tr data-match="M0 v X0" data-play-all="OVER 1.5 (PP)" data-edge-all="0.06" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0600" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0550"><td class='player'>P0</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>62%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.06'>+6.0%</td><td class='dim small'></td></tr><tr data-match="M1 v X1" data-play-all="OVER 1.5 (PP)" data-edge-all="0.056999999999999995" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0570" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0520"><td class='player'>P1</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>62%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.056999999999999995'>+5.7%</td><td class='dim small'></td></tr><tr data-match="M2 v X2" data-play-all="OVER 1.5 (PP)" data-edge-all="0.054" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0540" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0490"><td class='player'>P2</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>61%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.054'>+5.4%</td><td class='dim small'></td></tr><tr data-match="M3 v X3" data-play-all="OVER 1.5 (PP)" data-edge-all="0.051" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0510" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0460"><td class='player'>P3</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>61%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.051'>+5.1%</td><td class='dim small'></td></tr><tr data-match="M4 v X4" data-play-all="OVER 1.5 (PP)" data-edge-all="0.048" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0480" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0430"><td class='player'>P4</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>61%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.048'>+4.8%</td><td class='dim small'></td></tr><tr data-match="M5 v X5" data-play-all="OVER 1.5 (PP)" data-edge-all="0.045" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0450" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0400"><td class='player'>P5</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>60%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.045'>+4.5%</td><td class='dim small'></td></tr><tr data-match="M6 v X6" data-play-all="OVER 1.5 (PP)" data-edge-all="0.041999999999999996" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0420" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0370"><td class='player'>P6</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>60%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.041999999999999996'>+4.2%</td><td class='dim small'></td></tr><tr data-match="M7 v X7" data-play-all="OVER 1.5 (PP)" data-edge-all="0.03899999999999999" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0390" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0340"><td class='player'>P7</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>60%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.03899999999999999'>+3.9%</td><td class='dim small'></td></tr><tr data-match="M8 v X8" data-play-all="OVER 1.5 (PP)" data-edge-all="0.036" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0360" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0310"><td class='player'>P8</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>60%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.036'>+3.6%</td><td class='dim small'></td></tr><tr data-match="M9 v X9" data-play-all="OVER 1.5 (PP)" data-edge-all="0.033" data-play-pp="OVER 1.5 (PP)" data-edge-pp="0.0330" data-play-ud="OVER 1.5 (UD)" data-edge-ud="0.0280"><td class='player'>P9</td><td class='dim'></td><td class='dim'></td><td>Shots</td><td class='num'>1.5</td><td class='num'>1.5</td><td class='num gap'></td><td class='dim small'></td><td class='num'>59%</td><td class='play'>OVER 1.5 (PP)</td><td class='num edge pos' data-edge='0.033'>+3.3%</td><td class='dim small'></td></tr>
+</tbody></table>
+</div>
+<footer>
+  Edge = bet365 de-vigged P(side) − required probability, where required = platform breakeven
+  (UD 3-power / PP 5-flex by default) ÷ leg multiplier + a cushion against bet365 model error.
+  Sides Underdog doesn't offer (one-way lines) are never recommended. "Method" notes how the
+  bet365 probability was derived (devig = two-sided; 1way/mNN = one-sided deflated by a measured
+  or neutrality-calibrated margin; interp/extrap = off-ladder). Lineups: greedy pairing with each
+  leg used ≤2×, no repeated pairings, no same-game legs; EV is exact Poisson-binomial over the
+  structure's tiers. Implied edge from market prices — not betting advice.
+</footer>
+<script>
+ const t=document.getElementById('t');
+ let activeMatch=null, platMode='all';
+ function setPlat(btn){
+   platMode=btn.dataset.p;
+   document.querySelectorAll('.platbtn').forEach(b=>b.classList.toggle('active', b===btn));
+   for(const tr of t.tBodies[0].rows){
+     const play=tr.dataset['play'+cap(platMode)]||'';
+     const ev=tr.dataset['edge'+cap(platMode)];
+     const pc=tr.querySelector('.play'), ec=tr.querySelector('.edge');
+     if(pc) pc.textContent=play;
+     if(ec){
+       const f=parseFloat(ev);
+       ec.dataset.edge=isNaN(f)?'':f;
+       ec.textContent=isNaN(f)?'':((f>=0?'+':'')+(f*100).toFixed(1)+'%');
+       ec.classList.toggle('pos', f>0); ec.classList.toggle('neg', f<0);
+     }
+   }
+   filt();
+ }
+ function cap(s){ return s==='all'?'All':(s==='ud'?'Ud':'Pp'); }
+ function setMatch(btn){
+   const m=btn.dataset.m;
+   activeMatch=(m===activeMatch)?null:m;   // click the active game again to clear
+   document.querySelectorAll('.gamebtn').forEach(b=>b.classList.toggle('active', b.dataset.m===activeMatch));
+   document.getElementById('allbtn').classList.toggle('active', !activeMatch);
+   filt();
+ }
+ function clearMatch(){
+   activeMatch=null;
+   document.querySelectorAll('.gamebtn').forEach(b=>b.classList.remove('active'));
+   document.getElementById('allbtn').classList.add('active');
+   filt();
+ }
+ function filt(){
+   const q=document.getElementById('q').value.toLowerCase();
+   const ob=document.getElementById('onlyb').checked;
+   const op=document.getElementById('onlypos').checked;
+   for(const tr of t.tBodies[0].rows){
+     const txt=tr.innerText.toLowerCase();
+     const ec=tr.querySelector('.edge'); const ev=ec?parseFloat(ec.dataset.edge):NaN;
+     let show = txt.includes(q);
+     if(platMode!=='all' && !tr.dataset['edge'+cap(platMode)]) show=false;
+     if(ob && (isNaN(ev))) show=false;
+     if(op && !(ev>0)) show=false;
+     if(activeMatch && tr.dataset.match!==activeMatch) show=false;
+     tr.style.display = show?'':'none';
+   }
+ }
+ let asc={};
+ function sortBy(i){
+   const rows=[...t.tBodies[0].rows];
+   asc[i]=!asc[i];
+   rows.sort((a,b)=>{
+     let x=a.cells[i].dataset.edge??a.cells[i].innerText;
+     let y=b.cells[i].dataset.edge??b.cells[i].innerText;
+     const nx=parseFloat(x), ny=parseFloat(y);
+     if(!isNaN(nx)&&!isNaN(ny)) return asc[i]?nx-ny:ny-nx;
+     return asc[i]?(''+x).localeCompare(y):(''+y).localeCompare(x);
+   });
+   for(const r of rows) t.tBodies[0].appendChild(r);
+ }
+</script>
+</body></html>

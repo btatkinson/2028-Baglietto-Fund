@@ -24,10 +24,23 @@ WINDOW_HOURS = int(os.environ.get("WCP_WINDOW_HOURS", "48"))
 WC_LEAGUE_ID = os.environ.get("WCP_WC_LEAGUE_ID")      # set to skip auto-detection
 MAX_DETAIL = int(os.environ.get("WCP_MAX_DETAIL", "40"))
 
-# Edge model. DFS pick'em breakeven probability PER LEG. 0.5 = naive even-money.
-# Real breakeven depends on entry type (e.g. ~0.5 flex 2-pick, higher for power
-# plays) — set WCP_BREAKEVEN to match how you actually play.
-BREAKEVEN = float(os.environ.get("WCP_BREAKEVEN", "0.5"))
+# Per-platform per-leg breakevens (at 1.0x multiplier), set to the entry
+# structure you actually play. Defaults: UD 3-power (6.5x -> 53.6%) and
+# PP 5-flex (10x/2x/0.4x -> 54.3%). WCP_BREAKEVEN overrides both if set.
+_BE_BOTH = os.environ.get("WCP_BREAKEVEN")
+BREAKEVEN_UD = float(os.environ.get("WCP_BREAKEVEN_UD", _BE_BOTH or "0.536"))
+BREAKEVEN_PP = float(os.environ.get("WCP_BREAKEVEN_PP", _BE_BOTH or "0.543"))
+
+# Edge cushion: extra required probability on top of the breakeven, as
+# insurance against bet365 being wrong / de-vig model error. Applied after
+# multiplier scaling: required p = breakeven/mult + cushion.
+# 0.015 puts the effective bars at ~55.1% (UD 3-power) and ~55.8% (PP 5-flex).
+EDGE_CUSHION = float(os.environ.get("WCP_EDGE_CUSHION", "0.015"))
+
+# Lineup generation (structures defined in lineups.STRUCTURES)
+UD_STRUCTURE = os.environ.get("WCP_UD_STRUCTURE", "ud_power3")
+PP_STRUCTURE = os.environ.get("WCP_PP_STRUCTURE", "pp_flex5")
+MAX_LEG_USES = int(os.environ.get("WCP_MAX_LEG_USES", "2"))
 
 # One-way markets (Over quoted with no Under) bake the vig into the single price
 # and we can't observe the overround, so we assume one and deflate:

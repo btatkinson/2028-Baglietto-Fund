@@ -209,9 +209,10 @@ def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame
         om, um = _mult(rec.get("ud_o_mult")), _mult(rec.get("ud_u_mult"))
         if om is None and um is None:
             om = um = 1.0       # no option data parsed -> assume standard two-sided
-        for plat, line, mults in (("pp", rec["pp_line"], (1.0, 1.0)),
-                                  ("ud", rec["ud_line"], (om, um))):
-            ev = (edge_model.evaluate(ladder, line, over_mult=mults[0], under_mult=mults[1])
+        for plat, line, mults, be in (("pp", rec["pp_line"], (1.0, 1.0), config.BREAKEVEN_PP),
+                                      ("ud", rec["ud_line"], (om, um), config.BREAKEVEN_UD)):
+            ev = (edge_model.evaluate(ladder, line, over_mult=mults[0],
+                                      under_mult=mults[1], breakeven=be)
                   if ladder else None)
             if not ev:
                 row[f"prob_{plat}"] = None

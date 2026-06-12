@@ -66,12 +66,19 @@ def pipeline(scrape: bool = True, min_edge: float = 0.0):
     log(f"Matched/joined: {len(df):4d} rows  ({int(df['has_b365'].sum())} bet365-backed, "
         f"{n_edge} with positive edge)")
 
+    import lineups as lineup_mod
+    lus = lineup_mod.generate(df)
+    for plat in ("ud", "pp"):
+        info = lus.get(plat) or {}
+        log(f"Lineups [{(info.get('structure') or {}).get('label', plat)}]: "
+            f"{len(info.get('lineups') or [])} built from {info.get('n_legs', 0)} qualified legs")
+
     meta = {
         "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "n_ud": len(ud), "n_pp": len(pp), "n_b365_players": b365_players,
         "margins": df.attrs.get("margins", ""),
     }
-    path = rpt.write_report(df, meta)
+    path = rpt.write_report(df, meta, lus)
     log(f"Report -> {path}")
 
     prev = df[df["best_edge"].fillna(-9).abs() >= min_edge].head(20)
