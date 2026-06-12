@@ -58,20 +58,28 @@ def _canonical_match(registry: dict, b365_match, team, opp) -> str:
 def _match_dfs(ud: pd.DataFrame, pp: pd.DataFrame):
     pp = pp.copy()
     pp["nname"] = pp["name"].map(norm_name)
-    pp["surname"] = pp["nname"].map(surname)
     pp_exact = {(r.nname, r.stat): i for i, r in zip(pp.index, pp.itertuples())}
-    pp_by_sur: dict[tuple[str, str], list[int]] = {}
+    # bucket each PP row under BOTH its first and last name token, so reversed
+    # name order (KR family-first vs given-first) still finds the bucket
+    pp_by_tok: dict[tuple[str, str], list[int]] = {}
     for i, r in zip(pp.index, pp.itertuples()):
-        pp_by_sur.setdefault((r.surname, r.stat), []).append(i)
+        toks = r.nname.split()
+        for tok in ({toks[0], toks[-1]} if toks else ()):
+            pp_by_tok.setdefault((tok, r.stat), []).append(i)
 
     used, records = set(), []
     for r in ud.itertuples():
         un = norm_name(r.name)
         idx = pp_exact.get((un, r.stat))
         if idx is None or idx in used:
-            cands = [i for i in pp_by_sur.get((surname(un), r.stat), [])
-                     if i not in used and names_compatible(un, pp.at[i, "nname"])]
-            idx = cands[0] if len(cands) == 1 else None
+            toks = un.split()
+            cand_ids = []
+            for tok in ({toks[0], toks[-1]} if toks else ()):
+                for i in pp_by_tok.get((tok, r.stat), []):
+                    if i not in used and i not in cand_ids and \
+                            names_compatible(un, pp.at[i, "nname"]):
+                        cand_ids.append(i)
+            idx = cand_ids[0] if len(cand_ids) == 1 else None
         if idx is not None:
             used.add(idx)
             h = pp.loc[idx]
@@ -129,6 +137,15 @@ def _find_rows(b365_idx, name, stat):
             return None, None
         rows = compat[0]
     return rows, (rows[0].get("match") if rows else None)
+
+
+def _mult(v):
+    """Float multiplier or None (None/NaN = side not offered / unknown)."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None     # NaN -> None
 
 
 def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame:
@@ -189,8 +206,13 @@ def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame
         row["has_b365"] = bool(ladder)
         row["b365_lines"] = (f"{ladder[0][0]:g}–{ladder[-1][0]:g}" if ladder else "")
         best_edge = None
-        for plat, line in (("pp", rec["pp_line"]), ("ud", rec["ud_line"])):
-            ev = edge_model.evaluate(ladder, line) if ladder else None
+        om, um = _mult(rec.get("ud_o_mult")), _mult(rec.get("ud_u_mult"))
+        if om is None and um is None:
+            om = um = 1.0       # no option data parsed -> assume standard two-sided
+        for plat, line, mults in (("pp", rec["pp_line"], (1.0, 1.0)),
+                                  ("ud", rec["ud_line"], (om, um))):
+            ev = (edge_model.evaluate(ladder, line, over_mult=mults[0], under_mult=mults[1])
+                  if ladder else None)
             if not ev:
                 row[f"prob_{plat}"] = None
                 row[f"edge_{plat}"] = None
@@ -200,6 +222,8 @@ def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame
             row[f"edge_{plat}"] = ev["edge"]
             row[f"side_{plat}"] = ev["side"]
             row["method"] = ev["method"]
+            if plat == "ud":
+                row["ud_mult"] = ev["mult"]
             if best_edge is None or ev["edge"] > best_edge:
                 best_edge = ev["edge"]
         row["best_edge"] = best_edge
@@ -207,12 +231,12 @@ def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame
 
     cols = ["name", "team", "opp", "match", "stat", "pp_line", "ud_line", "gap",
             "has_b365", "b365_lines", "prob_pp", "edge_pp", "side_pp",
-            "prob_ud", "edge_ud", "side_ud", "method", "best_edge",
+            "prob_ud", "edge_ud", "side_ud", "ud_mult", "method", "best_edge",
             "ud_o_mult", "ud_u_mult"]
     df = pd.DataFrame(out, columns=cols)
     df.attrs["margins"] = " · ".join(margin_bits)
     # sort: bet365-backed edges first (desc), then by |gap| for the rest
-    df["_sortkey"] = df["best_edge"].fillna(-9)
-    df["_gapabs"] = df["gap"].abs().fillna(-1)
+    df["_sortkey"] = pd.to_numeric(df["best_edge"], errors="coerce").fillna(-9)
+    df["_gapabs"] = pd.to_numeric(df["gap"], errors="coerce").abs().fillna(-1)
     df = df.sort_values(["_sortkey", "_gapabs"], ascending=False).drop(columns=["_sortkey", "_gapabs"])
     return df.reset_index(drop=True)

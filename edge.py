@@ -158,20 +158,43 @@ def prob_over_at(ladder, dfs_line: float):
     return nearest[1], "extrap"
 
 
-def evaluate(ladder, dfs_line: float):
-    """Return edge info dict for a DFS line given a bet365 ladder."""
+def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0):
+    """Return edge info for a DFS line given a bet365 ladder.
+
+    over_mult/under_mult are the platform's payout multipliers for each side
+    (Underdog leg multipliers; PrizePicks standard = 1.0). Pass None for a side
+    the platform does NOT offer (e.g. UD one-way over lines) — that side is
+    never recommended. Multipliers stack multiplicatively into the entry
+    payout, so a leg at multiplier m breaks even at BREAKEVEN / m:
+    at the 0.5 baseline a 0.71x over needs ~70%, a 1.25x under needs 40%.
+    """
     p_over, method = prob_over_at(ladder, dfs_line)
     if p_over is None:
         return None
     p_over = min(max(p_over, 0.0), 1.0)
-    if p_over >= 0.5:
-        side, p_side = "OVER", p_over
-    else:
-        side, p_side = "UNDER", 1.0 - p_over
+
+    cands = []
+    for side, p_side, mult in (("OVER", p_over, over_mult),
+                               ("UNDER", 1.0 - p_over, under_mult)):
+        if mult is None:
+            continue                      # side not offered on the platform
+        try:
+            m = float(mult)
+        except (TypeError, ValueError):
+            m = 1.0
+        if m != m or m <= 0:              # NaN / nonsense -> neutral
+            m = 1.0
+        be = min(config.BREAKEVEN / m, 0.999)
+        cands.append((side, p_side, p_side - be, be, m))
+    if not cands:
+        return None
+    side, p_side, edge, be, m = max(cands, key=lambda c: c[2])
     return {
         "prob_over": round(p_over, 4),
         "side": side,
-        "edge": round(p_side - config.BREAKEVEN, 4),
+        "edge": round(edge, 4),
+        "breakeven": round(be, 4),
+        "mult": m,
         "method": method,
         "n_lines": len(ladder),
     }

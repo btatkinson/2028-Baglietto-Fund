@@ -25,13 +25,16 @@ def _best_play(r):
     """Pick the platform/side with the best edge for the headline cell."""
     cands = []
     if r.get("edge_pp") is not None and not pd.isna(r.get("edge_pp")):
-        cands.append(("PP", r["pp_line"], r["side_pp"], r["edge_pp"]))
+        cands.append(("PP", r["pp_line"], r["side_pp"], r["edge_pp"], None))
     if r.get("edge_ud") is not None and not pd.isna(r.get("edge_ud")):
-        cands.append(("UD", r["ud_line"], r["side_ud"], r["edge_ud"]))
+        cands.append(("UD", r["ud_line"], r["side_ud"], r["edge_ud"], r.get("ud_mult")))
     if not cands:
         return "", None
-    plat, line, side, edge = max(cands, key=lambda c: c[3])
-    return f"{side} {line:g} ({plat})", edge
+    plat, line, side, edge, mult = max(cands, key=lambda c: c[3])
+    tag = ""
+    if mult is not None and not pd.isna(mult) and abs(float(mult) - 1.0) > 1e-9:
+        tag = f" @{float(mult):g}x"
+    return f"{side} {line:g} ({plat}{tag})", edge
 
 
 def build_html(df: pd.DataFrame, meta: dict) -> str:
@@ -135,10 +138,13 @@ def build_html(df: pd.DataFrame, meta: dict) -> str:
 </tbody></table>
 </div>
 <footer>
-  Edge = bet365 de-vigged P(favoured side) − breakeven, evaluated at each DFS line.
-  "Method" notes how the bet365 probability was derived (devig = two-sided, raw = one-sided/optimistic,
-  interp/extrap = off-ladder). Implied edge from market prices — not betting advice; validate the
-  breakeven and de-vig assumptions against how you actually play.
+  Edge = bet365 de-vigged P(side) − breakeven, evaluated at each DFS line. Underdog leg
+  multipliers adjust the breakeven (a 0.71x over needs ~70% at the 0.5 baseline, a 1.25x
+  side needs 40%); the multiplier shows in the play tag. Sides Underdog doesn't offer
+  (one-way lines) are never recommended. "Method" notes how the bet365 probability was
+  derived (devig = two-sided; 1way/mNN = one-sided deflated by a measured or
+  neutrality-calibrated margin; interp/extrap = off-ladder). Implied edge from market
+  prices — not betting advice.
 </footer>
 <script>
  const t=document.getElementById('t');
