@@ -1,0 +1,177 @@
+"""Edge model.
+
+bet365 is the only priced source for these stats, so it's the reference. For a
+player+stat we build an implied P(over line) ladder from bet365's odds, de-vigging
+Over/Under pairs where both exist (else using the raw 1/odds with a flag), then
+interpolate to the DFS line. Edge = favourable-side probability - breakeven.
+
+ASSUMPTIONS (validate against real data, then tune):
+  * Two-sided lines are de-vigged proportionally (basic, standard method).
+  * One-sided "Over X" ladders can't be de-vigged (no opposing price), so we
+    deflate the raw implied prob by an assumed margin: p=(1/odds)/(1+ONEWAY_MARGIN).
+    Flagged method="1way/mNN" so you can see (and discount) them.
+  * P(over) is treated as monotonically decreasing in the line for interpolation.
+  * BREAKEVEN (config) is the DFS pick'em per-leg breakeven; 0.5 = naive even money.
+
+This computes implied edge from market prices; it is not betting advice.
+"""
+from __future__ import annotations
+
+import math
+
+import config
+
+
+def _devig_pair(over_odds, under_odds):
+    po, pu = 1.0 / over_odds, 1.0 / under_odds
+    return po / (po + pu)
+
+
+def build_ladder(rows, margin=None, margin_src="") -> list[tuple[float, float, str]]:
+    """rows: dicts with side, line, odds_decimal, kind ('ou' two-sided | 'nplus').
+    Per line we prefer a two-sided 'ou' price (real de-vig); 'nplus' only fills
+    lines/sides not supplied by 'ou'. One-way rungs are deflated by `margin`
+    (default config.ONEWAY_MARGIN); margin_src tags where the margin came from
+    ('meas' = measured from devig pairs, 'neut' = neutrality-calibrated).
+    Returns sorted [(line, p_over, method)]."""
+    if margin is None:
+        margin = config.ONEWAY_MARGIN
+    by_line: dict[float, dict] = {}
+    # two-sided rows first so they win ties over one-way rungs at the same line
+    for r in sorted(rows, key=lambda r: 0 if str(r.get("kind")) == "ou" else 1):
+        line = r.get("line")
+        if line is None:
+            continue
+        try:
+            line = float(line)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(line):
+            continue
+        side = str(r.get("side") or "").lower()
+        try:
+            odds = float(r.get("odds_decimal"))
+        except (TypeError, ValueError):
+            continue
+        if odds <= 1.0:
+            continue
+        kind = "ou" if str(r.get("kind")) == "ou" else "nplus"
+        slot = by_line.setdefault(line, {"src": kind})
+        if slot["src"] == "ou" and kind == "nplus":
+            continue  # don't let a one-way rung overwrite a two-sided line
+        slot["under" if "under" in side else "over"] = odds
+        if kind == "ou":
+            slot["src"] = "ou"
+
+    ladder = []
+    tag = f"1way/m{int(round(margin * 100))}" + (f"/{margin_src}" if margin_src else "")
+    for line, slot in by_line.items():
+        if "over" in slot and "under" in slot:
+            ladder.append((line, _devig_pair(slot["over"], slot["under"]), "devig"))
+        elif "over" in slot:
+            p = (1.0 / slot["over"]) / (1.0 + margin)
+            ladder.append((line, min(max(p, 0.001), 0.999), tag))
+        elif "under" in slot:
+            pu = (1.0 / slot["under"]) / (1.0 + margin)
+            ladder.append((line, min(max(1.0 - pu, 0.001), 0.999), tag))
+    ladder.sort(key=lambda t: t[0])
+    return ladder
+
+
+def measure_margins(b365_df):
+    """Empirically measure the one-way vig per stat: wherever the SAME player+line
+    has both a two-sided devig pair AND a one-way N+ price, the one-way margin is
+    directly observable as m = (1/odds_1way) / p_devig - 1.
+    Returns {stat: (median_margin, n_pairs)}."""
+    if b365_df is None or not len(b365_df):
+        return {}
+    samples: dict[str, list[float]] = {}
+    cols = b365_df.columns
+    if "kind" not in cols:
+        return {}
+    grouped: dict[tuple, dict] = {}
+    for r in b365_df.to_dict("records"):
+        line = r.get("line")
+        try:
+            line = float(line)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(line):
+            continue
+        try:
+            odds = float(r.get("odds_decimal"))
+        except (TypeError, ValueError):
+            continue
+        if odds <= 1.0:
+            continue
+        key = (r.get("stat"), r.get("player"), line)
+        slot = grouped.setdefault(key, {})
+        side = str(r.get("side") or "").lower()
+        if str(r.get("kind")) == "ou":
+            slot["ou_under" if "under" in side else "ou_over"] = odds
+        elif "under" not in side:
+            slot["np_over"] = odds
+    for (stat, _, _), slot in grouped.items():
+        if "ou_over" in slot and "ou_under" in slot and "np_over" in slot:
+            p = _devig_pair(slot["ou_over"], slot["ou_under"])
+            if p > 0:
+                m = (1.0 / slot["np_over"]) / p - 1.0
+                samples.setdefault(stat, []).append(m)
+    out = {}
+    for stat, ms in samples.items():
+        ms.sort()
+        med = ms[len(ms) // 2]
+        out[stat] = (min(max(med, 0.0), 0.60), len(ms))
+    return out
+
+
+def neutral_margin(raw_probs):
+    """Given raw (margin=0) P(over DFS line) samples for a stat, choose the margin
+    that makes the MEDIAN deflated prob exactly 0.5 — balanced over/under recs by
+    construction. p_deflated = raw/(1+m), so m = median(raw)/0.5 - 1.
+    Cap is higher than for measured vig because this margin also absorbs
+    rung-vs-DFS-line extrapolation distance (e.g. passes milestone rungs)."""
+    ps = sorted(p for p in raw_probs if p is not None)
+    if len(ps) < 5:
+        return None
+    med = ps[len(ps) // 2]
+    return min(max(med / 0.5 - 1.0, 0.0), 1.50)
+
+
+def prob_over_at(ladder, dfs_line: float):
+    """Interpolate P(over dfs_line) from the ladder. Returns (prob, method)."""
+    if not ladder or dfs_line is None or (isinstance(dfs_line, float) and math.isnan(dfs_line)):
+        return None, "none"
+    for line, p, method in ladder:
+        if abs(line - dfs_line) < 1e-9:
+            return p, f"exact/{method}"
+    below = [t for t in ladder if t[0] < dfs_line]
+    above = [t for t in ladder if t[0] > dfs_line]
+    if below and above:
+        (l0, p0, _), (l1, p1, _) = below[-1], above[0]
+        frac = (dfs_line - l0) / (l1 - l0)
+        return p0 + frac * (p1 - p0), "interp"
+    if not below and not above:
+        return None, "none"
+    # outside ladder range -> clamp to nearest endpoint (flagged)
+    nearest = above[0] if above else below[-1]
+    return nearest[1], "extrap"
+
+
+def evaluate(ladder, dfs_line: float):
+    """Return edge info dict for a DFS line given a bet365 ladder."""
+    p_over, method = prob_over_at(ladder, dfs_line)
+    if p_over is None:
+        return None
+    p_over = min(max(p_over, 0.0), 1.0)
+    if p_over >= 0.5:
+        side, p_side = "OVER", p_over
+    else:
+        side, p_side = "UNDER", 1.0 - p_over
+    return {
+        "prob_over": round(p_over, 4),
+        "side": side,
+        "edge": round(p_side - config.BREAKEVEN, 4),
+        "method": method,
+        "n_lines": len(ladder),
+    }

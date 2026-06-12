@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+ 
+# captured snapshots + pasted payloads (data, not code)
+data/*/
+data/underdog.json
+data/prizepicks.json
+ 
+# generated report
+out/report.html
