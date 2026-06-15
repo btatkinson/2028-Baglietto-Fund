@@ -20,7 +20,7 @@ ODDSPAPI_KEY = os.environ.get("ODDSPAPI_KEY")          # optional: goalscorer + 
 
 # Capture window / scope
 SOCCER_SPORT_ID = 1                                    # BetsAPI soccer
-WINDOW_HOURS = int(os.environ.get("WCP_WINDOW_HOURS", "48"))
+WINDOW_HOURS = int(os.environ.get("WCP_WINDOW_HOURS", "96"))
 WC_LEAGUE_ID = os.environ.get("WCP_WC_LEAGUE_ID")      # set to skip auto-detection
 MAX_DETAIL = int(os.environ.get("WCP_MAX_DETAIL", "40"))
 

@@ -3,7 +3,7 @@
 run.py — the one button.
 
   1. parse data/underdog.json + data/prizepicks.json (you paste these)
-  2. capture bet365 WC player props for the next 48h via BetsAPI
+  2. capture bet365 WC player props for the next 96h via BetsAPI
      (or fall back to the latest saved capture if no token)
   3. fuzzy-match across all three sources
   4. compute implied edge from bet365 and write out/report.html (sorted)
