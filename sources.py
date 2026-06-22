@@ -8,14 +8,65 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import requests
 
+import config
 from normalize import norm_stat, norm_name
 
 UD_SPORTS = {"", "SOCCER", "FIFA"}
 
+# PrizePicks plain GET → 403 (Cloudflare); a browser UA gets the JSON. UD is fine
+# either way but we send the UA to both.
+_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+       "Accept": "application/json"}
+
 
 def _load(path: Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+
+
+def _fetch_json(url: str) -> dict:
+    r = requests.get(url, headers=_UA, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def refresh_underdog(dest=None) -> int:
+    """GET fresh Underdog soccer lines → dest. Returns #lines written, or 0 if the
+    pull was EMPTY (no live UD slate) — in which case the existing paste is KEPT, so
+    a quiet slate never clobbers a good file. Raises on network/HTTP error."""
+    dest = Path(dest or config.UNDERDOG_JSON)
+    j = _fetch_json(config.UNDERDOG_URL)
+    n = len(j.get("over_under_lines") or [])
+    if n:
+        dest.write_text(json.dumps(j), encoding="utf-8")
+    return n
+
+
+def refresh_prizepicks(dest=None) -> int:
+    """GET fresh PrizePicks projections → dest (browser UA required). Returns
+    #projections written, or 0 (kept existing) if the pull had no `data`."""
+    dest = Path(dest or config.PRIZEPICKS_JSON)
+    j = _fetch_json(config.PRIZEPICKS_URL)
+    n = len(j.get("data") or [])
+    if n:
+        dest.write_text(json.dumps(j, ensure_ascii=False), encoding="utf-8")
+    return n
+
+
+def refresh_dfs() -> dict:
+    """Refresh both paste files in place. Sources are independent: a failure or an
+    empty pull on one is logged and leaves THAT file untouched (never clobbers a
+    good paste). Returns {source: status string}."""
+    out = {}
+    for name, fn in (("underdog", refresh_underdog), ("prizepicks", refresh_prizepicks)):
+        try:
+            n = fn()
+            out[name] = f"{n} fresh" if n else "empty — kept paste"
+        except Exception as e:
+            out[name] = f"{type(e).__name__} — kept paste"
+    return out
 
 
 def parse_underdog(path) -> tuple[pd.DataFrame, int]:
@@ -65,13 +116,21 @@ def parse_underdog(path) -> tuple[pd.DataFrame, int]:
             "n_options": len(l.get("options") or []),
         })
 
-    rows, n_alt = [], 0
-    for cands in grouped.values():
+    rows, n_alt, ud_ladders = [], 0, {}
+    for key, cands in grouped.items():
         mains = [c for c in cands if c["n_options"] == 2] or cands
         mains.sort(key=lambda c: c["line"])
-        rows.append(mains[(len(mains) - 1) // 2])  # median main line
+        rows.append(mains[(len(mains) - 1) // 2])  # median main line (DFS target)
         n_alt += len(cands) - 1
+        # full multiplier-bearing ladder (every posted line) for UD-implied prob
+        ladder = [{"line": c["line"], "over_mult": c["over_mult"],
+                   "under_mult": c["under_mult"]}
+                  for c in cands
+                  if c["over_mult"] is not None and c["under_mult"] is not None]
+        if ladder:
+            ud_ladders[key] = ladder            # key is (norm_name(name), stat)
     df = pd.DataFrame(rows, columns=["name", "stat", "line", "over_mult", "under_mult"])
+    df.attrs["ud_ladders"] = ud_ladders
     return df, n_alt
 
 

@@ -26,6 +26,7 @@ import json
 import os
 import secrets
 import threading
+import time
 import traceback
 from datetime import datetime, timezone
 from functools import wraps
@@ -65,7 +66,11 @@ def requires_auth(f):
 
 
 # ----------------------------- background job -----------------------------
+# Minimum gap between one-click refreshes — the live pulls (bet365 + UD + PP) are
+# rate-limited upstream and the lines barely move minute-to-minute, so throttle.
+REFRESH_MIN_INTERVAL = int(os.environ.get("WCP_REFRESH_MIN_SECS", "300"))
 _JOB_LOCK = threading.Lock()
+_LAST_FINISH = 0.0              # epoch of the last completed run (for the throttle)
 JOB = {"status": "idle",        # idle | running | done | error
        "log": "", "error": "",
        "started": None, "finished": None}
@@ -79,29 +84,41 @@ class _Tee(io.StringIO):
         return len(s)
 
 
-def _run_job(scrape: bool):
+def _run_job(scrape: bool, refresh: bool):
+    global _LAST_FINISH
     buf = _Tee()
     try:
         with contextlib.redirect_stdout(buf):
-            pipeline(scrape=scrape)
+            pipeline(scrape=scrape, refresh=refresh)
         JOB["status"] = "done"
     except Exception as e:
         JOB["status"] = "error"
         JOB["error"] = str(e)
         JOB["log"] += "\n" + traceback.format_exc(limit=6)
     finally:
+        _LAST_FINISH = time.time()
         JOB["finished"] = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
 
-def _start_job(scrape: bool) -> bool:
+def _start_job(scrape: bool, refresh: bool) -> bool:
     with _JOB_LOCK:
         if JOB["status"] == "running":
             return False
         JOB.update(status="running", log="", error="",
                    started=datetime.now(timezone.utc).strftime("%H:%M:%S UTC"),
                    finished=None)
-        threading.Thread(target=_run_job, args=(scrape,), daemon=True).start()
+        threading.Thread(target=_run_job, args=(scrape, refresh), daemon=True).start()
         return True
+
+
+def _refresh_wait() -> int:
+    """Seconds until another one-click refresh is allowed (0 = ready now). A run in
+    progress counts as blocked."""
+    if JOB["status"] == "running":
+        return REFRESH_MIN_INTERVAL
+    if not _LAST_FINISH:
+        return 0
+    return max(0, int(REFRESH_MIN_INTERVAL - (time.time() - _LAST_FINISH)))
 
 
 # ----------------------------- pages -----------------------------
@@ -121,6 +138,9 @@ _PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>wc_props — 
  label.opt {{ display:flex; gap:8px; align-items:center; color:#8b93a7; margin:14px 0; }}
  button {{ background:#1f6feb; color:#fff; border:0; padding:10px 18px; border-radius:8px;
            font-size:15px; cursor:pointer; }}
+ button.big {{ width:100%; padding:26px; font-size:23px; font-weight:700; border-radius:12px;
+               letter-spacing:.3px; }}
+ button:disabled {{ opacity:.45; cursor:not-allowed; }}
  .hint {{ color:#8b93a7; font-size:13px; }}
  pre {{ background:#171a21; border:1px solid #262b36; border-radius:8px; padding:14px;
         overflow:auto; font-size:12px; white-space:pre-wrap; }}
@@ -158,25 +178,41 @@ def index():
 @app.get("/control")
 @requires_auth
 def control():
-    running = ("<p class='hint'>⚠ a run is currently in progress — "
-               "<a href='/status'>watch it</a>.</p>" if JOB["status"] == "running" else "")
+    running = JOB["status"] == "running"
+    wait = _refresh_wait()
+    if running:
+        hero = ("<button class='big' disabled><span class='spin'>⟳</span> Running…</button>"
+                "<p class='hint'>A run is in progress — <a href='/status'>watch it</a>.</p>")
+    elif wait > 0:
+        hero = (f"<button class='big' disabled>⟳ Refresh (wait {wait}s)</button>"
+                f"<p class='hint'>Just refreshed — throttled for {REFRESH_MIN_INTERVAL // 60} min "
+                f"to spare the upstream feeds. Available again in {wait}s.</p>"
+                f"<script>setTimeout(()=>location.reload(), {wait * 1000 + 500})</script>")
+    else:
+        hero = ("<form method='post' action='/refresh'>"
+                "<button class='big' type='submit'>⟳ Refresh &amp; run</button></form>"
+                "<p class='hint'>One click: pull live bet365 + Underdog + PrizePicks, "
+                "then run the pipeline.</p>")
     body = f"""
 <h1>wc_props — control panel</h1>
-{running}
-<p class="hint">Paste the raw API JSON (or upload the files), then run.
-Leave a box empty to keep the file already on the server.</p>
-<form method="post" action="/run" enctype="multipart/form-data">
-  <div class="field">underdog.json — {_file_state(config.UNDERDOG_JSON)}</div>
-  <textarea name="underdog_text" placeholder="paste Underdog over_under_lines payload…"></textarea>
-  <input type="file" name="underdog_file">
-  <div class="field">prizepicks.json — {_file_state(config.PRIZEPICKS_JSON)}</div>
-  <textarea name="prizepicks_text" placeholder="paste PrizePicks projections payload…"></textarea>
-  <input type="file" name="prizepicks_file">
-  <label class="opt"><input type="checkbox" name="scrape" checked>
-    capture fresh bet365 lines (uncheck to reuse the last capture)</label>
-  <button type="submit">Run pipeline</button>
-</form>
-<p class="hint"><a href="/">← back to report</a></p>"""
+{hero}
+<details style="margin-top:26px">
+  <summary class="hint" style="cursor:pointer">Manual override — paste/upload payloads (no auto-refresh)</summary>
+  <p class="hint">Use when a feed is down or empty. Leave a box empty to keep the file on the server.
+  This path does NOT auto-pull (your paste wins).</p>
+  <form method="post" action="/run" enctype="multipart/form-data">
+    <div class="field">underdog.json — {_file_state(config.UNDERDOG_JSON)}</div>
+    <textarea name="underdog_text" placeholder="paste Underdog over_under_lines payload…"></textarea>
+    <input type="file" name="underdog_file">
+    <div class="field">prizepicks.json — {_file_state(config.PRIZEPICKS_JSON)}</div>
+    <textarea name="prizepicks_text" placeholder="paste PrizePicks projections payload…"></textarea>
+    <input type="file" name="prizepicks_file">
+    <label class="opt"><input type="checkbox" name="scrape" checked>
+      capture fresh bet365 lines (uncheck to reuse the last capture)</label>
+    <button type="submit">Run with pasted lines</button>
+  </form>
+</details>
+<p class="hint" style="margin-top:18px"><a href="/">← back to report</a></p>"""
     return _PAGE.format(title="control", body=body)
 
 
@@ -213,12 +249,31 @@ def run_route():
         return _PAGE.format(title="error", body=body), 400
 
     scrape = bool(request.form.get("scrape"))
-    if not _start_job(scrape):
+    if not _start_job(scrape, refresh=False):       # manual paste: don't clobber it
         body = ("<h1>Already running</h1><p>A run is in progress — "
                 "<a href='/status'>watch it</a>.</p>")
         return _PAGE.format(title="busy", body=body), 409
     if notes:
         JOB["log"] = "\n".join(notes) + "\n\n" + JOB["log"]
+    return redirect("/status", code=303)
+
+
+@app.post("/refresh")
+@requires_auth
+def refresh_route():
+    """One-click: pull live bet365 + UD + PP and run. Throttled to once per
+    REFRESH_MIN_INTERVAL so we don't hammer the upstream feeds."""
+    if JOB["status"] == "running":
+        body = ("<h1>Already running</h1><p>A run is in progress — "
+                "<a href='/status'>watch it</a>.</p>")
+        return _PAGE.format(title="busy", body=body), 409
+    wait = _refresh_wait()
+    if wait > 0:
+        body = (f"<h1>Too soon</h1><p class='hint'>Lines were refreshed under "
+                f"{REFRESH_MIN_INTERVAL // 60} min ago — try again in {wait}s.</p>"
+                f"<p><a href='/control'>← back to control</a></p>")
+        return _PAGE.format(title="throttled", body=body), 429
+    _start_job(scrape=True, refresh=True)
     return redirect("/status", code=303)
 
 

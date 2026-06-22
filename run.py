@@ -24,21 +24,26 @@ import config
 import capture as cap
 import match as matcher
 import report as rpt
+import sources
 from sources import parse_underdog, parse_prizepicks
 
 
-def pipeline(scrape: bool = True, min_edge: float = 0.0):
+def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True):
     """Run the full pipeline. Returns (report_path, summary_text).
     Raises FileNotFoundError if the pasted DFS payloads are missing."""
-    for p in (config.UNDERDOG_JSON, config.PRIZEPICKS_JSON):
-        if not p.exists():
-            raise FileNotFoundError(f"Missing {p} — paste the raw API JSON there first.")
-
     lines = []
 
     def log(s):
         print(s)
         lines.append(s)
+
+    if refresh:
+        st = sources.refresh_dfs()                  # pull live UD/PP into the paste files
+        log(f"DFS refresh: UD {st['underdog']} · PP {st['prizepicks']}")
+
+    for p in (config.UNDERDOG_JSON, config.PRIZEPICKS_JSON):
+        if not p.exists():
+            raise FileNotFoundError(f"Missing {p} — paste the raw API JSON there first.")
 
     ud, n_alt = parse_underdog(config.UNDERDOG_JSON)
     pp, n_flash = parse_prizepicks(config.PRIZEPICKS_JSON)
@@ -65,6 +70,14 @@ def pipeline(scrape: bool = True, min_edge: float = 0.0):
     n_edge = int((df["best_edge"].fillna(-9) > 0).sum())
     log(f"Matched/joined: {len(df):4d} rows  ({int(df['has_b365'].sum())} bet365-backed, "
         f"{n_edge} with positive edge)")
+
+    # snapshot every source's raw prices for later devig/weight calibration
+    try:
+        import calibration
+        added, total = calibration.log_snapshot(ud, pp, b365)
+        log(f"Calibration log: +{added} price rows (total {total})")
+    except Exception as e:
+        log(f"Calibration log skipped: {e}")
 
     import lineups as lineup_mod
     lus = lineup_mod.generate(df)
@@ -99,12 +112,15 @@ def main(argv=None):
     ap.add_argument("--scrape", action=argparse.BooleanOptionalAction, default=True,
                     help="capture fresh bet365 lines (default). Use --no-scrape to reuse "
                          "the last capture without re-hitting BetsAPI while debugging.")
+    ap.add_argument("--refresh", action=argparse.BooleanOptionalAction, default=True,
+                    help="pull live Underdog/PrizePicks lines into the paste files first "
+                         "(default). Use --no-refresh for fully offline iteration.")
     ap.add_argument("--min-edge", type=float, default=0.0, help="console preview filter on |edge|")
     ap.add_argument("--open", action="store_true", help="open the report in a browser when done")
     args = ap.parse_args(argv)
 
     try:
-        path, _ = pipeline(scrape=args.scrape, min_edge=args.min_edge)
+        path, _ = pipeline(scrape=args.scrape, min_edge=args.min_edge, refresh=args.refresh)
     except FileNotFoundError as e:
         sys.exit(str(e))
 

@@ -60,6 +60,9 @@ STAT_MAP = {
     "player_fouls_committed": "Fouls committed",
     "player_to_be_fouled": "Fouls drawn",
     "player_offsides": "Offsides",
+    "player_to_score_or_assist": "Goals + assists",   # bet365 binary anytime score-or-assist
+    "player_to_score": "Goals",
+    "anytime_goalscorer": "Goals",
     # goalkeeper saves comes through as "goalkeeper_saves" -> already mapped
     # specialized bet365 markets (headed shots, outside box) intentionally fall
     # through unmapped so they don't false-match a DFS stat.

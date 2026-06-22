@@ -8,6 +8,7 @@ and saves raw JSON per match under data/{today}/betsapi/raw/.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from datetime import date, datetime, timezone
@@ -17,10 +18,14 @@ import pandas as pd
 import requests
 
 import config
-from normalize import norm_stat
+from normalize import norm_stat, norm_country
 
 HOST = "https://api.b365api.com"
 _NPLUS = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*\+\s*$")
+
+# bet365 bundles score / assist / score-or-assist as three HEADERS inside one
+# "Player to Score or Assist" market — the header IS the sub-stat, not a line.
+_SCORE_ASSIST = {"score": "Goals", "assist": "Assists", "score or assist": "Goals + assists"}
 
 
 def _parse_line(o):
@@ -65,6 +70,129 @@ def _level(name: str) -> str:
     if n.startswith("match "):
         return "match"
     return "other"
+
+
+def _poisson_mean_for_tail(k, p_ge_k):
+    """Solve mu so that P(X >= k) == p_ge_k for X ~ Poisson(mu) (k >= 1)."""
+    if k < 1 or not (0.0 < p_ge_k < 1.0):
+        return None
+
+    def p_ge(mu):                       # P(X >= k) = 1 - sum_{i<k} e^-mu mu^i/i!
+        term, cdf = math.exp(-mu), math.exp(-mu)
+        for i in range(1, k):
+            term *= mu / i
+            cdf += term
+        return 1.0 - cdf
+
+    lo, hi = 1e-6, 25.0
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if p_ge(mid) < p_ge_k else (lo, mid)
+    return (lo + hi) / 2
+
+
+def _mean_from_ou_ladder(pairs):
+    """Expected count (~ Poisson mean) from an Over/Under ladder. `pairs` is
+    {line: {"over": odd, "under": odd}}. De-vig each two-sided pair to a fair
+    P(over) and back out the Poisson mean that reproduces it; pick the pair nearest
+    a coin-flip (least tail-sensitive). Fall back to the bare line (Over nearest
+    1.90) if no two-sided pair exists. bet365 posts the SAME goals line (usually
+    2.5) for every match and encodes strength in the PRICE, so the bare line badly
+    understates lopsided games (France-Iraq: line 2.5 but Over @ 1.33 => mean ~3.7)."""
+    best_mu, best_gap = None, 1e9
+    fallback, fb_gap = None, 1e9
+    for line, pq in pairs.items():
+        ov, un = pq.get("over"), pq.get("under")
+        if ov is None:
+            continue
+        if un is None:                  # one-sided: last-resort fallback (line as mean)
+            if abs(ov - 1.90) < fb_gap:
+                fb_gap, fallback = abs(ov - 1.90), line
+            continue
+        po, pu = 1.0 / ov, 1.0 / un
+        fair_over = po / (po + pu)       # de-vigged P(total > line)
+        mu = _poisson_mean_for_tail(int(math.floor(line)) + 1, fair_over)
+        if mu is None:
+            continue
+        gap = abs(fair_over - 0.5)       # nearest a coin-flip = most reliable
+        if gap < best_gap:
+            best_gap, best_mu = gap, mu
+    return best_mu if best_mu is not None else fallback
+
+
+def _match_total_goals(markets):
+    """Expected total match goals from the main 'Goals Over/Under' market."""
+    pairs = {}                          # line -> {"over": odd, "under": odd}
+    for m in markets:
+        if m.get("name") != "Goals Over/Under":
+            continue
+        for o in m.get("odds") or []:
+            side = str(o.get("header", "")).lower()
+            if side not in ("over", "under"):
+                continue
+            try:
+                line, od = float(o.get("name")), float(o.get("odds"))   # line is in 'name'
+            except (TypeError, ValueError):
+                continue
+            if od > 1:
+                pairs.setdefault(line, {})[side] = od
+    return _mean_from_ou_ladder(pairs)
+
+
+_OU_HCP = re.compile(r"^\s*(over|under)\s+(\d+(?:\.\d+)?)\s*$", re.I)
+
+
+def _team_total_goals(markets):
+    """(home_g, away_g) expected goals per side from 'Team Total Goals'. Each team's
+    O/U ladder is under header '1' (home) / '2' (away), with the line+side in the
+    `handicap` field ('Over 1.5'). This is the market split we anchor scorers to —
+    far better than the Goals-Elo, which can't price cross-confederation mismatches."""
+    pairs = {"1": {}, "2": {}}          # team header -> {line: {over/under: odd}}
+    for m in markets:
+        if m.get("name") != "Team Total Goals":
+            continue
+        for o in m.get("odds") or []:
+            hdr = str(o.get("header", "")).strip()
+            if hdr not in pairs:
+                continue
+            mm = _OU_HCP.match(str(o.get("handicap") or ""))
+            if not mm:
+                continue
+            try:
+                od = float(o.get("odds"))
+            except (TypeError, ValueError):
+                continue
+            if od > 1:
+                pairs[hdr].setdefault(float(mm.group(2)), {})[mm.group(1).lower()] = od
+    return _mean_from_ou_ladder(pairs["1"]), _mean_from_ou_ladder(pairs["2"])
+
+
+def _player_teams(markets, home, away):
+    """{player_name: 'home'|'away'} from 'Team Goalscorer'. Within the 'First'
+    header the roster is listed as: home players, 'No Goalscorer (HOME)', away
+    players, 'No Goalscorer (AWAY)' — so each 'No Goalscorer (TEAM)' marker closes
+    the block of players that precede it."""
+    out, pending = {}, []
+    sides = {norm_country(home): "home", norm_country(away): "away"}
+    for m in markets:
+        if m.get("name") != "Team Goalscorer":
+            continue
+        for o in m.get("odds") or []:
+            if str(o.get("header", "")) != "First":
+                continue
+            nm = str(o.get("name") or "")
+            low = nm.lower()
+            if low.startswith("no goalscorer"):
+                inside = nm[nm.find("(") + 1:nm.find(")")] if "(" in nm else ""
+                side = sides.get(norm_country(inside))
+                if side:
+                    for p in pending:
+                        out[p] = side
+                pending = []
+            elif nm:
+                pending.append(nm)
+        break                            # one Team Goalscorer market is enough
+    return out
 
 
 def _collect_markets(obj):
@@ -131,20 +259,26 @@ def capture() -> pd.DataFrame:
     rawdir = config.DATA_DIR / date.today().isoformat() / "betsapi" / "raw"
     rawdir.mkdir(parents=True, exist_ok=True)
 
-    rows = []
+    rows, gmap, komap = [], {}, {}
     for m in hot:
         fi = m.get("id")
         home, away = _teamname(m.get("home")), _teamname(m.get("away"))
+        komap[f"{home} v {away}"] = m.get("time")
         try:
             payload = _get("/v4/bet365/prematch", {"FI": fi})
         except RuntimeError as e:
             print(f"   ! {fi} {home} v {away}: {e}")
             continue
-        (rawdir / f"{fi}_{stamp}.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        (rawdir / f"{fi}_{stamp}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         results = payload.get("results") or []
         if not results:
             continue
-        for mk in _dedupe(_collect_markets(results[0])):
+        markets = _dedupe(_collect_markets(results[0]))
+        gmap[f"{home} v {away}"] = _match_total_goals(markets)
+        hg, ag = _team_total_goals(markets)               # market expected goals per side
+        pteams = _player_teams(markets, home, away)       # {player_name: 'home'|'away'}
+        for mk in markets:
             mname = mk.get("name", "")
             if _level(mname) != "player":
                 continue
@@ -154,19 +288,34 @@ def capture() -> pd.DataFrame:
                     odd = float(o.get("odds"))
                 except (TypeError, ValueError):
                     continue
-                line = _parse_line(o)
+                header = (o.get("header") or "").strip()
+                sub = _SCORE_ASSIST.get(header.lower())
+                if sub:                       # one market, three sub-bets keyed by header
+                    row_stat, line, side = sub, 0.5, "over"
+                else:
+                    row_stat = stat
+                    line = _parse_line(o)
+                    if line is None and row_stat in ("Goals + assists", "Goals", "Assists"):
+                        line = 0.5            # binary "to score/assist" = over 0.5
+                    side = header or None
+                pteam = pteams.get(o.get("name"))
                 rows.append({
                     "match": f"{home} v {away}", "home": home, "away": away,
-                    "player": o.get("name"), "market_name": mname, "stat": stat,
-                    "side": (o.get("header") or "").strip() or None,
+                    "player": o.get("name"), "market_name": mname, "stat": row_stat,
+                    "side": side,
                     "line": line, "odds_decimal": odd, "market_id": mk.get("id"),
                     "kind": "ou" if "over/under" in mname.lower() else "nplus",
+                    "player_team": pteam,
+                    "team_total": hg if pteam == "home" else (ag if pteam == "away" else None),
                 })
         print(f"   {fi} {home} v {away}: captured")
         time.sleep(0.4)
 
     df = pd.DataFrame(rows, columns=["match", "home", "away", "player", "market_name",
-                                     "stat", "side", "line", "odds_decimal", "market_id", "kind"])
+                                     "stat", "side", "line", "odds_decimal", "market_id", "kind",
+                                     "player_team", "team_total"])
+    df["match_total"] = df["match"].map(gmap)
+    df["kickoff"] = df["match"].map(komap)        # epoch seconds, for today/remaining filters
     if len(df):
         fdir = config.DATA_DIR / date.today().isoformat() / "betsapi" / "flat"
         fdir.mkdir(parents=True, exist_ok=True)

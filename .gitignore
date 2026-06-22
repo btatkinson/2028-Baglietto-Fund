@@ -3,9 +3,15 @@ __pycache__/
 *.pyc
  
 # captured snapshots + pasted payloads (data, not code)
-data/*/
-data/underdog.json
-data/prizepicks.json
- 
+data/
+downloaded_files/
+
+# minutes-model artifacts — all reproducible via warmup.py / train.py, never commit
+mins_projection_model/data/
+mins_projection_model/models/
+mins_projection_model/catboost_info/
+*.cbm
+*.parquet
+
 # generated report
 out/report.html

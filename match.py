@@ -11,6 +11,7 @@ import pandas as pd
 
 import config
 import edge as edge_model
+import devig
 from normalize import (norm_name, names_compatible, surname,
                        norm_country, country_display)
 
@@ -57,6 +58,7 @@ def _canonical_match(registry: dict, b365_match, team, opp) -> str:
 
 
 def _match_dfs(ud: pd.DataFrame, pp: pd.DataFrame):
+    ud_ladders = ud.attrs.get("ud_ladders", {})    # (norm_name, stat) -> rungs
     pp = pp.copy()
     pp["nname"] = pp["name"].map(norm_name)
     pp_exact = {(r.nname, r.stat): i for i, r in zip(pp.index, pp.itertuples())}
@@ -71,6 +73,7 @@ def _match_dfs(ud: pd.DataFrame, pp: pd.DataFrame):
     used, records = set(), []
     for r in ud.itertuples():
         un = norm_name(r.name)
+        rungs = ud_ladders.get((un, r.stat))
         idx = pp_exact.get((un, r.stat))
         if idx is None or idx in used:
             toks = un.split()
@@ -86,17 +89,19 @@ def _match_dfs(ud: pd.DataFrame, pp: pd.DataFrame):
             h = pp.loc[idx]
             records.append({"name": h["name"], "team": h["team"], "opp": h["opp"],
                             "stat": r.stat, "pp_line": h["line"], "ud_line": r.line,
-                            "ud_o_mult": r.over_mult, "ud_u_mult": r.under_mult})
+                            "ud_o_mult": r.over_mult, "ud_u_mult": r.under_mult,
+                            "ud_rungs": rungs})
         else:
             records.append({"name": r.name, "team": "", "opp": "", "stat": r.stat,
                             "pp_line": None, "ud_line": r.line,
-                            "ud_o_mult": r.over_mult, "ud_u_mult": r.under_mult})
+                            "ud_o_mult": r.over_mult, "ud_u_mult": r.under_mult,
+                            "ud_rungs": rungs})
     for i in pp.index:
         if i not in used:
             h = pp.loc[i]
             records.append({"name": h["name"], "team": h["team"], "opp": h["opp"],
                             "stat": h["stat"], "pp_line": h["line"], "ud_line": None,
-                            "ud_o_mult": None, "ud_u_mult": None})
+                            "ud_o_mult": None, "ud_u_mult": None, "ud_rungs": None})
     return records
 
 
@@ -149,12 +154,19 @@ def _mult(v):
     return f if f == f else None     # NaN -> None
 
 
-def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame:
+def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame, w_ud=None) -> pd.DataFrame:
+    if w_ud is None:                            # default: fitted once enough outcomes, else 0.6
+        try:
+            import calibration
+            w_ud = calibration.blend_weight()
+        except Exception:
+            w_ud = config.BLEND_W_UD
     records = _match_dfs(ud, pp)
     if len(b365) and "kind" not in b365.columns:
         b365 = b365.copy()
         b365["kind"] = "nplus"   # old captures: treat everything as one-way
     b365_idx = _index_bet365(b365)
+    gs = devig.goalscorer_probs(b365)        # book-normalized P for goal/assist markets
 
     # ---- per-stat one-way margin calibration ----
     # 1) measured: same player+line has both a devig pair and an N+ price
@@ -198,14 +210,21 @@ def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame) -> pd.DataFrame
     for i, rec in enumerate(records):
         rows_b, b365_match = rows_cache[i]
         margin, src = resolve_margin(rec["stat"])
-        ladder = edge_model.build_ladder(rows_b, margin=margin, margin_src=src) if rows_b else None
+        ladder_b365 = edge_model.build_ladder(rows_b, margin=margin, margin_src=src) if rows_b else []
+        gkey = (b365_match, norm_name(rec["name"]), rec["stat"])
+        if rec["stat"] in ("Goals", "Assists", "Goals + assists") and gkey in gs:
+            ladder_b365 = [(0.5, gs[gkey], "gs-devig")]   # book-normalized de-vig
+        ud_ladder = edge_model.build_ud_ladder(rec.get("ud_rungs"))
+        ladder = edge_model.blend_ladders(ladder_b365, ud_ladder, w_ud=w_ud)
         row = dict(rec)
+        row.pop("ud_rungs", None)
         # standardized matchup label (country aliases resolved to one fixture)
         row["match"] = _canonical_match(fixtures, b365_match, rec.get("team"), rec.get("opp"))
         row["gap"] = (round(rec["pp_line"] - rec["ud_line"], 2)
                       if rec["pp_line"] is not None and rec["ud_line"] is not None else None)
-        row["has_b365"] = bool(ladder)
-        row["b365_lines"] = (f"{ladder[0][0]:g}–{ladder[-1][0]:g}" if ladder else "")
+        row["has_b365"] = bool(ladder_b365)
+        row["has_ud_px"] = bool(ud_ladder)
+        row["b365_lines"] = (f"{ladder_b365[0][0]:g}–{ladder_b365[-1][0]:g}" if ladder_b365 else "")
         best_edge = None
         om, um = _mult(rec.get("ud_o_mult")), _mult(rec.get("ud_u_mult"))
         if om is None and um is None:

@@ -205,3 +205,82 @@ def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=N
         "method": method,
         "n_lines": len(ladder),
     }
+
+
+def build_ud_ladder(rungs, skip_symmetric=False):
+    """Underdog-implied P(over line) ladder from UD's own option multipliers.
+
+    `rungs`: list of {line, over_mult, under_mult} (the alt-line set that
+    parse_underdog now preserves in df.attrs['ud_ladders']). UD's higher/lower
+    payout multipliers are de-vigged exactly like a two-sided bet365 price — the
+    cheaper-paying side is the more likely one. This is a *relative* read (UD
+    multipliers aren't true decimal odds), so it captures UD's lean, not a
+    guaranteed-calibrated absolute; validate the level against realized outcomes
+    (reliability curve) before trusting it as a maker fair.
+
+      * asymmetric multipliers -> de-vigged lean          (method 'ud-devig')
+      * symmetric multipliers   -> 0.5 anchor at that line (method 'ud-anchor';
+        carries only UD's line-placement opinion). UD is sharp, so a symmetric
+        line really does say "~coin flip here"; skip_symmetric drops these if you
+        decide the anchors are noise.
+
+    Returns sorted [(line, p_over, method)]."""
+    out, seen = [], set()
+    for r in rungs or []:
+        line = r.get("line")
+        try:
+            line = float(line)
+        except (TypeError, ValueError):
+            continue
+        if line != line or line in seen:        # NaN / duplicate line
+            continue
+        try:
+            om, um = float(r.get("over_mult")), float(r.get("under_mult"))
+        except (TypeError, ValueError):
+            continue
+        if om <= 0 or um <= 0 or om != om or um != um:
+            continue
+        if abs(om - um) < 1e-9:                  # symmetric -> no price signal
+            if skip_symmetric:
+                continue
+            out.append((line, 0.5, "ud-anchor"))
+        else:
+            out.append((line, _devig_pair(om, um), "ud-devig"))
+        seen.add(line)
+    out.sort(key=lambda t: t[0])
+    return out
+
+
+def blend_ladders(b365, ud, w_ud=0.6):
+    """Blend a bet365 ladder and a UD-implied ladder into one [(line, p, method)].
+
+    w_ud is the weight on UD (default 0.6 — UD treated as the sharper book).
+    Either side may be empty/None; if one is, the other is returned unchanged.
+    Blending happens at the probability level on the UNION of both ladders'
+    lines: each source is interpolated to every line via prob_over_at, then
+    weighted-averaged. The method tag records both legs and how each was derived,
+    so a 'neut'/'extrap' sub-method still trips evaluate()'s softer cushion."""
+    b365, ud = b365 or [], ud or []
+    if not b365 and not ud:
+        return []
+    if not ud:
+        return list(b365)
+    if not b365:
+        return list(ud)
+    w_ud = min(max(float(w_ud), 0.0), 1.0)
+    w_b = 1.0 - w_ud
+    lines = sorted({l for l, _, _ in b365} | {l for l, _, _ in ud})
+    out = []
+    for line in lines:
+        pb, mb = prob_over_at(b365, line)
+        pu, mu = prob_over_at(ud, line)
+        if pb is None and pu is None:
+            continue
+        if pb is None:
+            out.append((line, pu, f"ud-only[{mu}]"))
+        elif pu is None:
+            out.append((line, pb, f"365-only[{mb}]"))
+        else:
+            out.append((line, w_b * pb + w_ud * pu,
+                        f"blend{int(round(w_ud * 100))}u[365:{mb}|ud:{mu}]"))
+    return out

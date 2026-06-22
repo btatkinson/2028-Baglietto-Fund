@@ -20,7 +20,11 @@ ODDSPAPI_KEY = os.environ.get("ODDSPAPI_KEY")          # optional: goalscorer + 
 
 # Capture window / scope
 SOCCER_SPORT_ID = 1                                    # BetsAPI soccer
-WINDOW_HOURS = int(os.environ.get("WCP_WINDOW_HOURS", "96"))
+# Capture horizon. Default 168h (7 days): WC group games cluster every 3-4 days,
+# and DFS posts keeper/prop lines for the *next* fixture well before kickoff
+# (Türkiye v USA posted at ~107h out). 96h silently dropped those — anything
+# beyond the window has no bet365 anchor, so its DFS props can never show edge.
+WINDOW_HOURS = int(os.environ.get("WCP_WINDOW_HOURS", "168"))
 WC_LEAGUE_ID = os.environ.get("WCP_WC_LEAGUE_ID")      # set to skip auto-detection
 MAX_DETAIL = int(os.environ.get("WCP_MAX_DETAIL", "40"))
 
@@ -47,13 +51,26 @@ UD_STRUCTURE = os.environ.get("WCP_UD_STRUCTURE", "ud_power3")
 PP_STRUCTURE = os.environ.get("WCP_PP_STRUCTURE", "pp_flex5")
 MAX_LEG_USES = int(os.environ.get("WCP_MAX_LEG_USES", "2"))
 
+# Blend weight on the Underdog-implied probability when combining the bet365
+# ladder with UD's own multiplier-implied ladder (remainder goes to bet365).
+# 0.5 = equal trust (the uninformed-prior default until calibration fits a weight);
+# 0 = pure bet365, 1 = pure UD. calibration.blend_weight() overrides this once
+# >= MIN_SAMPLES outcomes exist; main.py --w-ud and WCP_BLEND_W_UD override too.
+BLEND_W_UD = float(os.environ.get("WCP_BLEND_W_UD", "0.5"))
+
 # One-way markets (Over quoted with no Under) bake the vig into the single price
 # and we can't observe the overround, so we assume one and deflate:
 #   p_fair = (1/odds) / (1 + ONEWAY_MARGIN)
 # Bigger = more conservative ("terrible vig" haircut on one-sided lines).
 ONEWAY_MARGIN = float(os.environ.get("WCP_ONEWAY_MARGIN", "0.20"))
 
-# Manual paste files
+# DFS paste files + the public endpoints they come from (sources.refresh_dfs pulls
+# these in place). UD's beta endpoint is unauthenticated; PP needs a browser UA
+# (plain GET → 403 Cloudflare). Override the URLs via env if the league/sport shifts.
 UNDERDOG_JSON = DATA_DIR / "underdog.json"
 PRIZEPICKS_JSON = DATA_DIR / "prizepicks.json"
+UNDERDOG_URL = os.environ.get(
+    "WCP_UNDERDOG_URL", "https://api.underdogfantasy.com/beta/v6/over_under_lines?sport_id=FIFA")
+PRIZEPICKS_URL = os.environ.get(
+    "WCP_PRIZEPICKS_URL", "https://api.prizepicks.com/projections?league_id=241&per_page=500")
 REPORT_HTML = OUT_DIR / "report.html"
