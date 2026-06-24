@@ -32,11 +32,20 @@ def main():
     tm = pd.read_parquet(config.DATA_DIR / "team_matches.parquet")
     pm = pd.read_parquet(config.DATA_DIR / "player_matches.parquet")
     tm, pm = _drop_womens(tm, pm)
-    snaps, poss, goals, sot = build_ratings(tm, neutral_col="neutral")
-    save_elos(poss, goals, sot)
+    snaps, poss, goals, sot, shots, corners = build_ratings(tm, neutral_col="neutral")
+    save_elos(poss, goals, sot, shots, corners)
 
     frame = feat.build_training_frame(pm, snaps)
-    frame = frame[frame["minutes"] >= 20].sort_values("date").reset_index(drop=True)
+    n_all = len(frame)
+    frame = frame[frame["minutes"] >= 20]
+    # warm-up gate: drop rows whose ratings hadn't accumulated signal yet (cold
+    # early window / thin teams). Ratings still BUILT on those matches; we just
+    # don't teach the heads from their unreliable strength features.
+    n_warm = len(frame[frame["warm"]])
+    frame = frame[frame["warm"]].sort_values("date").reset_index(drop=True)
+    print(f"warm-up gate: {n_warm}/{n_all} rows warm "
+          f"(>= {config.GOALS_WARMUP_TEAM_MATCHES} priors/team, "
+          f">= {config.GOALS_WARMUP_MIN_MATCHES} in window); {frame['date'].min()}.. kept\n")
     k = int(len(frame) * 0.8)
     tr, te = frame.iloc[:k], frame.iloc[k:]
     print(f"frame: {len(frame)} rows, {frame['player'].nunique()} players, "

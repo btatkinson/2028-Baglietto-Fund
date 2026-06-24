@@ -89,14 +89,22 @@ def prior_minutes(prior, position, is_starter, abs_margin=0.0):
 
 
 def normalize_roster_minutes(means, team_total=None, cap=None, match_minutes=90):
-    """Scale a team's per-player minutes so they sum to the roster budget
-    (11 * match_minutes), holding any player at `cap` (one player can't exceed the
-    match length + stoppage) and redistributing the rest. This is the constraint
-    that makes pricing several players in the SAME match mutually coherent —
-    without it, independently-projected minutes over/under-shoot the 990 budget."""
-    team_total = float(team_total if team_total is not None else 11 * match_minutes)
+    """Scale a team's per-player minutes so they sum to the roster budget, holding
+    any player at `cap` (one player can't exceed the match length + stoppage) and
+    redistributing the rest. This is the constraint that makes pricing several
+    players in the SAME match mutually coherent.
+
+    The budget is 11 * cap, i.e. 11 outfield slots each filled for the FULL match
+    INCLUDING stoppage (~98'), so a team's projected minutes sum to ~1078, not the
+    bare 11*90=990 — consistent with the per-player cap, which already counts
+    stoppage. (Total field-time = 11 slots x match length, however it's split
+    between starters who come off and subs who come on.)"""
     cap = float(cap if cap is not None else match_minutes + 8)
-    m = {k: max(0.0, float(v)) for k, v in means.items()}
+    team_total = float(team_total if team_total is not None else 11 * cap)
+    # clamp at entry: cap is a hard physical limit (one player can't exceed the match
+    # length + stoppage), so a raw value already above it — e.g. a high book line
+    # reconciled to >90 implied minutes — is pinned to the cap, not held above it.
+    m = {k: min(max(0.0, float(v)), cap) for k, v in means.items()}
     for _ in range(12):
         fixed = sum(v for v in m.values() if v >= cap - 1e-9)
         free = [k for k, v in m.items() if v < cap - 1e-9]

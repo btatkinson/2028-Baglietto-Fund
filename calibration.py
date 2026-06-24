@@ -27,8 +27,8 @@ from normalize import norm_name, norm_country
 
 _PATH = config.DATA_DIR / "calibration" / "prices.parquet"
 _COLS = ["captured_at", "source", "match", "player", "nname", "stat", "line",
-         "side", "odds_decimal", "over_mult", "under_mult", "kind"]
-_NUM = ["line", "odds_decimal", "over_mult", "under_mult"]
+         "side", "odds_decimal", "over_mult", "under_mult", "kind", "p_model"]
+_NUM = ["line", "odds_decimal", "over_mult", "under_mult", "p_model"]
 _STR = ["captured_at", "source", "match", "player", "nname", "stat", "side", "kind"]
 
 
@@ -61,10 +61,34 @@ def _pp_rows(pp):
     return r
 
 
-def log_snapshot(ud, pp, b365, captured_at=None):
-    """Append one timestamped price snapshot across all sources. Returns (added, total)."""
+def _model_rows(joined):
+    """Model fair-value rows from the joined edge frame: the projection's P(over) at
+    the line the row displays (PP else UD). Stored as source='model' with the
+    probability in `p_model` (it's already a fair prob, so there's nothing to devig),
+    so reliability() scores the projection against realized outcomes alongside the
+    books. Rows without a model projection are skipped."""
+    if joined is None or not len(joined) or "prob_model" not in getattr(joined, "columns", []):
+        return pd.DataFrame()
+    d = joined.copy()
+    d["p_model"] = pd.to_numeric(d["prob_model"], errors="coerce")
+    d = d[d["p_model"].notna()]
+    if not len(d):
+        return pd.DataFrame()
+    line = d["pp_line"].where(d["pp_line"].notna(), d["ud_line"])
+    r = pd.DataFrame({"player": d["name"], "match": d["match"], "stat": d["stat"],
+                      "line": pd.to_numeric(line, errors="coerce"), "p_model": d["p_model"]})
+    r = r.dropna(subset=["line"])
+    r["source"], r["side"], r["odds_decimal"] = "model", "over", np.nan
+    r["over_mult"], r["under_mult"], r["kind"] = np.nan, np.nan, "model"
+    return r
+
+
+def log_snapshot(ud, pp, b365, captured_at=None, joined=None):
+    """Append one timestamped price snapshot across all sources (plus the model
+    projection, if the joined edge frame is supplied). Returns (added, total)."""
     captured_at = captured_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    parts = [p for p in (_b365_rows(b365), _ud_rows(ud), _pp_rows(pp)) if len(p)]
+    parts = [p for p in (_b365_rows(b365), _ud_rows(ud), _pp_rows(pp), _model_rows(joined))
+             if len(p)]
     if not parts:
         return 0, len(load_log())
     snap = pd.concat(parts, ignore_index=True)
@@ -171,6 +195,9 @@ def _raw_p(row):
         if pd.notna(om) and pd.notna(um) and om > 0 and um > 0:
             return (1 / om) / (1 / om + 1 / um)          # de-vig the two multipliers
         return 1 / om if pd.notna(om) and om > 0 else None
+    if row["source"] == "model":                         # already a fair P(over line)
+        pm = row.get("p_model")
+        return float(pm) if pd.notna(pm) else None
     return None                                          # pp: line only, no price
 
 

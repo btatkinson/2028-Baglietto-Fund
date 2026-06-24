@@ -79,10 +79,20 @@ def main(argv=None):
     if not len(b365):
         sys.exit("No bet365 prices available (capture failed or empty).")
 
-    w = args.w_ud if args.w_ud is not None else calibration.blend_weight()
-    df = matcher.join(ud, pp, b365, w_ud=w)
     try:
-        added, _ = calibration.log_snapshot(ud, pp, b365)
+        import projection
+        proj = projection.project(b365)
+        avail = [f["match"] for f in proj["fixtures"] if f.get("available")]
+        print(f"Projection: {proj['n_players']} players priced "
+              f"across {len(avail)} confirmed XI" + (f" ({', '.join(avail)})" if avail else ""))
+    except Exception as e:
+        proj = None
+        print(f"Projection skipped: {e}")
+
+    w = args.w_ud if args.w_ud is not None else calibration.blend_weight()
+    df = matcher.join(ud, pp, b365, w_ud=w, proj=proj)
+    try:
+        added, _ = calibration.log_snapshot(ud, pp, b365, joined=df)
     except Exception:
         added = 0
 
@@ -114,7 +124,15 @@ def main(argv=None):
             for _, r in rows.iterrows():
                 line = r["ud_line"] if pd.notna(r["ud_line"]) else r["pp_line"]
                 lo, hi = _quote(r["prob_ud"])
-                print(f"     {r['stat']:16s} o{line:<4g} {r['prob_ud']:4.0%}   YES {lo}¢/{hi}¢   [{_method_tag(r['method'])}]")
+                # model fair value (confirmed XI) — the independent, Kalshi-comparable read
+                pm = r.get("prob_model")
+                if pm is not None and pd.notna(pm):
+                    mlo, mhi = _quote(pm)
+                    model = f"  ║ model {pm:4.0%} YES {mlo}¢/{mhi}¢ (fair o{r['fair_model']:g})"
+                else:
+                    model = ""
+                print(f"     {r['stat']:16s} o{line:<4g} blend {r['prob_ud']:4.0%}   "
+                      f"YES {lo}¢/{hi}¢   [{_method_tag(r['method'])}]{model}")
     print()
 
 

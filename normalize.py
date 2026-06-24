@@ -154,6 +154,7 @@ _COUNTRY_ALIASES = {
     "ir iran": "iran", "iran": "iran",
     "cote d ivoire": "ivory coast", "ivory coast": "ivory coast",
     "cabo verde": "cape verde", "cape verde": "cape verde",
+    "cape verde islands": "cape verde",
     "united arab emirates": "uae", "uae": "uae",
     "congo dr": "dr congo", "dr congo": "dr congo",
     "republic of ireland": "ireland", "ireland": "ireland",

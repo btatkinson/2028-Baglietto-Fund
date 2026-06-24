@@ -32,6 +32,12 @@ def player_ewm(player_matches: pd.DataFrame, stat="passes",
 
 RATE_STATS = ["passes", "shots", "sot", "tackles", "saves", "goals", "assists", "ga"]
 
+# Team game-script columns attached to every player-match (this team's value, then
+# the opponent's). Order MUST match the per-side tuples built in build_training_frame
+# and the raters in team_strength.build_ratings. rate_model.SCRIPT imports this.
+SCRIPT_FIELDS = ["exp_team_share", "exp_team_g", "exp_opp_g", "exp_team_sot", "exp_opp_sot",
+                 "exp_team_shots", "exp_opp_shots", "exp_team_corners", "exp_opp_corners"]
+
 
 def build_training_frame(player_matches: pd.DataFrame,
                          snaps: pd.DataFrame) -> pd.DataFrame:
@@ -41,13 +47,24 @@ def build_training_frame(player_matches: pd.DataFrame,
     split into its two sides so a player gets HIS team's expected share/goals/SoT
     and the OPPONENT's expected goals/SoT (the latter drives saves & shots-faced).
     For every stat we attach the leak-free EWM per-90 (a feature) and the per-90
-    target. One row per player-match (who played)."""
+    target. One row per player-match (who played). SCRIPT_FIELDS below lists the
+    team/opp script columns built here (shots/corners are NaN for snaps that lack
+    them)."""
+    nan = float("nan")
+
+    def g(r, name):                       # snap attr or NaN (shots/corners optional)
+        return getattr(r, name, nan)
+
     side = {}
     for r in snaps.itertuples():
-        side[(r.match_id, r.home)] = (r.exp_home_share, r.exp_home_g, r.exp_away_g,
-                                      r.exp_home_sot, r.exp_away_sot)
-        side[(r.match_id, r.away)] = (1.0 - r.exp_home_share, r.exp_away_g, r.exp_home_g,
-                                      r.exp_away_sot, r.exp_home_sot)
+        side[(r.match_id, r.home)] = (
+            r.exp_home_share, r.exp_home_g, r.exp_away_g, r.exp_home_sot, r.exp_away_sot,
+            g(r, "exp_home_shots"), g(r, "exp_away_shots"),
+            g(r, "exp_home_corners"), g(r, "exp_away_corners"))
+        side[(r.match_id, r.away)] = (
+            1.0 - r.exp_home_share, r.exp_away_g, r.exp_home_g, r.exp_away_sot, r.exp_home_sot,
+            g(r, "exp_away_shots"), g(r, "exp_home_shots"),
+            g(r, "exp_away_corners"), g(r, "exp_home_corners"))
 
     pm = player_matches.sort_values(["player", "date"]).copy()
     if "ga" not in pm.columns:
@@ -58,15 +75,20 @@ def build_training_frame(player_matches: pd.DataFrame,
         pm[f"ewm_{s}90"] = player_ewm(pm, stat=s)
         pm[f"{s}90"] = pm[s] / factor
 
-    sc = [side.get((mid, tm), (None, None, None, None, None))
+    sc = [side.get((mid, tm), (None,) * len(SCRIPT_FIELDS))
           for mid, tm in zip(pm["match_id"], pm["team"])]
-    pm[["exp_team_share", "exp_team_g", "exp_opp_g", "exp_team_sot", "exp_opp_sot"]] = \
-        pd.DataFrame(sc, index=pm.index)
+    pm[SCRIPT_FIELDS] = pd.DataFrame(sc, index=pm.index)
+
+    # carry the per-fixture ratings warm-up flag so the trainer can withhold cold rows
+    if "warm" in snaps.columns and "match_id" in snaps.columns:
+        warm = snaps.drop_duplicates("match_id").set_index("match_id")["warm"]
+        pm["warm"] = pm["match_id"].map(warm).fillna(False)
+    else:
+        pm["warm"] = True
 
     pm = pm[pm["minutes"] > 0].copy()
     pm["position"] = pm["position"].fillna("NA")          # CatBoost cat feature
-    keep = (["position", "source", "exp_team_share", "exp_team_g", "exp_opp_g",
-             "exp_team_sot", "exp_opp_sot", "player", "team", "date", "match_id",
-             "minutes", "is_starter"]
+    keep = (["position", "source"] + SCRIPT_FIELDS
+            + ["player", "team", "date", "match_id", "minutes", "is_starter", "warm"]
             + [f"ewm_{s}90" for s in RATE_STATS] + [f"{s}90" for s in RATE_STATS])
     return pm[keep].reset_index(drop=True)

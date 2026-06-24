@@ -12,6 +12,7 @@ import pandas as pd
 import config
 import edge as edge_model
 import devig
+import projection as proj_mod
 from normalize import (norm_name, names_compatible, surname,
                        norm_country, country_display)
 
@@ -154,13 +155,15 @@ def _mult(v):
     return f if f == f else None     # NaN -> None
 
 
-def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame, w_ud=None) -> pd.DataFrame:
+def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame, w_ud=None,
+         proj=None) -> pd.DataFrame:
     if w_ud is None:                            # default: fitted once enough outcomes, else 0.6
         try:
             import calibration
             w_ud = calibration.blend_weight()
         except Exception:
             w_ud = config.BLEND_W_UD
+    proj_cells = (proj or {}).get("cells", {}) if proj else {}
     records = _match_dfs(ud, pp)
     if len(b365) and "kind" not in b365.columns:
         b365 = b365.copy()
@@ -248,11 +251,29 @@ def join(ud: pd.DataFrame, pp: pd.DataFrame, b365: pd.DataFrame, w_ud=None) -> p
             if best_edge is None or ev["edge"] > best_edge:
                 best_edge = ev["edge"]
         row["best_edge"] = best_edge
+
+        # ---- independent model fair value (confirmed-XI projection) ----
+        # Keyed by the order-independent country pair so b365- or DFS-sourced rows
+        # both resolve. The model gives a (mean, var) NegBin/Poisson; we read its
+        # fair line and P(over) at the line this row displays (PP else UD).
+        row["prob_model"] = row["mean_model"] = row["fair_model"] = None
+        if proj_cells:
+            mk = (proj_mod.mkey(b365_match)
+                  or proj_mod.mkey(f"{rec.get('team')} v {rec.get('opp')}")
+                  or proj_mod.mkey(row["match"]))
+            cell = proj_cells.get((mk, norm_name(rec["name"]), rec["stat"])) if mk else None
+            if cell and not cell.get("projected"):   # pre-XI fallback stays off the priced report
+                disp_line = rec["pp_line"] if rec["pp_line"] is not None else rec["ud_line"]
+                row["mean_model"] = round(cell["mean"], 3)
+                row["fair_model"] = cell["fair_line"]
+                pm = proj_mod.prob_over(cell["mean"], cell["var"], disp_line)
+                row["prob_model"] = round(pm, 4) if pm is not None else None
         out.append(row)
 
     cols = ["name", "team", "opp", "match", "stat", "pp_line", "ud_line", "gap",
             "has_b365", "b365_lines", "prob_pp", "edge_pp", "side_pp",
             "prob_ud", "edge_ud", "side_ud", "ud_mult", "method", "best_edge",
+            "prob_model", "mean_model", "fair_model",
             "ud_o_mult", "ud_u_mult"]
     df = pd.DataFrame(out, columns=cols)
     df.attrs["margins"] = " · ".join(margin_bits)

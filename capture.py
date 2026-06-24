@@ -220,6 +220,48 @@ def _dedupe(markets):
     return list(best.values())
 
 
+# columns that together identify a single distinct price. bet365 sometimes posts
+# the same market under two market_ids (a stale re-post), which would otherwise
+# count a player twice in any raw-row sum (e.g. a team's anytime-score probs
+# summing to ~2x its true expected goals). _dedupe keys by market id, so distinct
+# ids both survive it — this collapses at the price level instead.
+_ROW_KEY = ["match", "player", "stat", "line", "side", "kind"]
+
+
+def _dedupe_fixtures(df: pd.DataFrame) -> pd.DataFrame:
+    """BetsAPI sometimes lists the same match under two event ids — a stale stub
+    with no/few player markets alongside the live event. Keep only the event that
+    supplied the most price rows for each match and drop the other outright, so a
+    thin duplicate can't merge mismatched lines into one fixture. Relies on the
+    transient '_fi' (source event id) column written during capture."""
+    if df is None or not len(df) or "_fi" not in df.columns or "match" not in df.columns:
+        return df
+    keep = []
+    for _match, g in df.groupby("match", sort=False):
+        if g["_fi"].nunique() <= 1:
+            keep.append(g)
+            continue
+        winner = g.groupby("_fi").size().idxmax()      # event id with the most rows
+        keep.append(g[g["_fi"] == winner])
+    return pd.concat(keep).sort_index() if keep else df
+
+
+def _dedupe_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop duplicate price rows from double-posted bet365 markets. Keeps one row
+    per (match, player, stat, line, side, kind) — the shortest odds, i.e. the
+    sharper, most-bet-into quote when a book leaves two instances of a market up
+    (NaN odds sort last, so a real price is always preferred over a missing one)."""
+    if df is None or not len(df) or "odds_decimal" not in df.columns:
+        return df
+    keys = [c for c in _ROW_KEY if c in df.columns]
+    if not keys:
+        return df
+    od = pd.to_numeric(df["odds_decimal"], errors="coerce")
+    tmp = df.assign(_od=od).sort_values("_od", kind="stable", na_position="last")
+    out = tmp.drop_duplicates(subset=keys, keep="first").drop(columns="_od")
+    return out.sort_index().reset_index(drop=True)
+
+
 def _discover_league():
     if config.WC_LEAGUE_ID:
         return config.WC_LEAGUE_ID
@@ -307,15 +349,25 @@ def capture() -> pd.DataFrame:
                     "kind": "ou" if "over/under" in mname.lower() else "nplus",
                     "player_team": pteam,
                     "team_total": hg if pteam == "home" else (ag if pteam == "away" else None),
+                    "_fi": fi,                # source event id (transient; for fixture dedupe)
                 })
         print(f"   {fi} {home} v {away}: captured")
         time.sleep(0.4)
 
     df = pd.DataFrame(rows, columns=["match", "home", "away", "player", "market_name",
                                      "stat", "side", "line", "odds_decimal", "market_id", "kind",
-                                     "player_team", "team_total"])
+                                     "player_team", "team_total", "_fi"])
     df["match_total"] = df["match"].map(gmap)
     df["kickoff"] = df["match"].map(komap)        # epoch seconds, for today/remaining filters
+    n0 = len(df)
+    df = _dedupe_fixtures(df)
+    if n0 - len(df):
+        print(f"   dropped {n0 - len(df)} rows from duplicate fixture listings (stale event ids)")
+    df = df.drop(columns="_fi", errors="ignore")
+    n_raw = len(df)
+    df = _dedupe_rows(df)
+    if n_raw - len(df):
+        print(f"   dropped {n_raw - len(df)} duplicate price rows (double-posted markets)")
     if len(df):
         fdir = config.DATA_DIR / date.today().isoformat() / "betsapi" / "flat"
         fdir.mkdir(parents=True, exist_ok=True)
@@ -334,4 +386,5 @@ def load_latest_flat() -> pd.DataFrame:
     if not files:
         return pd.DataFrame()
     f = files[-1]
-    return pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f)
+    df = pd.read_parquet(f) if f.suffix == ".parquet" else pd.read_csv(f)
+    return _dedupe_rows(df)          # captures saved before the dedupe fix may still hold dups

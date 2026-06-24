@@ -26,25 +26,39 @@ _DEFAULT_G = 2.6                      # fallback if no match-total line was capt
 _GOAL_STATS = ("Goals", "Assists", "Goals + assists")
 
 
+SOFT_FLOOR = 0.15      # each player keeps >= this fraction of its raw hazard (no zeros)
+
+
 def _solve(raw, target):
-    """raw: {key: book P(>=1)}. Additive-hazard de-vig: in lambda-space subtract a
-    constant delta from each lambda (floored at 0) so sum(max(0, lambda_i-delta)) ==
-    target. Penalizes longshots most, preserves favorites, never inflates. Returns
-    {key: de-vigged P}."""
+    """raw: {key: book P(>=1)}. SOFT-FLOOR additive-hazard de-vig: in lambda-space
+    subtract a constant delta from each lambda so the hazards sum to the team's
+    expected goals, but floor each at SOFT_FLOOR * its own raw lambda (not at 0).
+    This removes the overround mostly from the longshots while preserving the
+    FAVOURITES' share (the diluted-by-40-longshots raw share that a plain
+    multiplicative scale wrongly keeps) — and, unlike the plain additive that
+    hard-floored at 0, it never zeros a legitimate mid-tier scorer. P_i = 1-exp(-l).
+
+    NB this fixes the DISTRIBUTION (who gets the goals). The absolute LEVEL is set by
+    `target` (bet365 Team Total Goals). The goalscorer market / Kalshi price the
+    favourites higher — that implies a larger total than the (sharp, two-sided) Team
+    Total market, i.e. the goalscorer side is likely the soft one; do NOT tune to it.
+    The arbiter is the calibration reliability curve (do these probs match realized
+    scoring rates?). Returns {key: de-vigged P}."""
     lam = {k: -math.log(1 - min(p, 0.999)) for k, p in raw.items()}
     base = sum(lam.values())
     if not lam or target <= 0 or base <= target:
         return {k: 1 - math.exp(-v) for k, v in lam.items()}   # no/low vig -> leave
-    s = lambda d: sum(max(0.0, v - d) for v in lam.values())
+    floor = {k: SOFT_FLOOR * v for k, v in lam.items()}
+    s = lambda d: sum(max(floor[k], v - d) for k, v in lam.items())
     lo, hi = 0.0, max(lam.values())
-    for _ in range(60):
+    for _ in range(80):
         mid = (lo + hi) / 2
         if s(mid) > target:
             lo = mid
         else:
             hi = mid
     d = (lo + hi) / 2
-    return {k: 1 - math.exp(-max(0.0, v - d)) for k, v in lam.items()}
+    return {k: 1 - math.exp(-max(floor[k], v - d)) for k, v in lam.items()}
 
 
 def _norm_group(g):

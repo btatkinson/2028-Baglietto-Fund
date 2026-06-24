@@ -1,0 +1,151 @@
+match,team,source,player,minutes,tt_goals,tt_assists,goal_hazard,goal_pct,assist_hazard,assist_pct,ga_pct
+Colombia v DR Congo,Colombia,bet365,Jhon Cordoba,22.9,1.726,1.294,0.2598,0.2288,0.0789,0.0759,0.2873
+Colombia v DR Congo,Colombia,bet365,Cucho Hernandez,24.4,1.726,1.294,0.2598,0.2288,0.0789,0.0759,0.2873
+Colombia v DR Congo,Colombia,bet365,Luis Diaz,71.7,1.726,1.294,0.2263,0.2025,0.1181,0.1114,0.2914
+Colombia v DR Congo,Colombia,bet365,Luis Suarez,63.9,1.726,1.294,0.2263,0.2025,0.0564,0.0549,0.2463
+Colombia v DR Congo,Colombia,bet365,James Rodriguez,73.8,1.726,1.294,0.1226,0.1154,0.1181,0.1114,0.214
+Colombia v DR Congo,Colombia,bet365,Andres Gomez,22.4,1.726,1.294,0.1226,0.1154,0.0231,0.0229,0.1356
+Colombia v DR Congo,Colombia,bet365,Juan Quintero,9.5,1.726,1.294,0.1108,0.1049,0.1434,0.1336,0.2245
+Colombia v DR Congo,Colombia,bet365,Jaminton Campaz,20.1,1.726,1.294,0.062,0.0601,0.1181,0.1114,0.1648
+Colombia v DR Congo,Colombia,bet365,Jhon Arias,98.0,1.726,1.294,0.062,0.0601,0.0789,0.0759,0.1314
+Colombia v DR Congo,Colombia,bet365,Jorge Carrascal,21.6,1.726,1.294,0.0301,0.0297,0.0789,0.0759,0.1033
+Colombia v DR Congo,Colombia,bet365,Richard Rios,21.0,1.726,1.294,0.0251,0.0247,0.0381,0.0374,0.0612
+Colombia v DR Congo,Colombia,bet365,Juan Portilla,18.0,1.726,1.294,0.0251,0.0247,0.0215,0.0212,0.0455
+Colombia v DR Congo,Colombia,bet365,Kevin Castano,22.6,1.726,1.294,0.0231,0.0229,0.0231,0.0229,0.0452
+Colombia v DR Congo,Colombia,bet365,Gustavo Puerta,66.3,1.726,1.294,0.02,0.0198,0.0231,0.0229,0.0422
+Colombia v DR Congo,Colombia,bet365,Yerry Mina,18.9,1.726,1.294,0.02,0.0198,0.0103,0.0103,0.0299
+Colombia v DR Congo,Colombia,bet365,Santiago Arias,22.2,1.726,1.294,0.02,0.0198,0.0789,0.0759,0.0942
+Colombia v DR Congo,Colombia,bet365,Jefferson Lerma,45.6,1.726,1.294,0.02,0.0198,0.0231,0.0229,0.0422
+Colombia v DR Congo,Colombia,bet365,Deiver Machado,21.9,1.726,1.294,0.02,0.0198,0.0789,0.0759,0.0942
+Colombia v DR Congo,Colombia,bet365,Daniel Munoz,52.3,1.726,1.294,0.0188,0.0186,0.0381,0.0374,0.0553
+Colombia v DR Congo,Colombia,bet365,Willer Ditta,19.4,1.726,1.294,0.0131,0.013,0.0158,0.0157,0.0284
+Colombia v DR Congo,Colombia,bet365,Davinson Sanchez,47.4,1.726,1.294,0.0131,0.013,0.0143,0.0142,0.027
+Colombia v DR Congo,Colombia,bet365,Jhon Lucumi,98.0,1.726,1.294,0.0131,0.013,0.0131,0.013,0.0258
+Colombia v DR Congo,Colombia,bet365,Johan Mojica,98.0,1.726,1.294,0.012,0.0119,0.0231,0.0229,0.0345
+Colombia v DR Congo,Colombia,model,Camilo Vargas,98.0,1.726,1.294,0.0,0.0,0.0,0.0,0.0
+Colombia v DR Congo,DR Congo,bet365,Yoane Wissa,98.0,0.693,0.52,0.0958,0.0913,0.0282,0.0278,0.1166
+Colombia v DR Congo,DR Congo,bet365,Fiston Mayele,22.9,0.693,0.52,0.0958,0.0913,0.0282,0.0278,0.1166
+Colombia v DR Congo,DR Congo,bet365,Theo Bongonda,23.9,0.693,0.52,0.0733,0.0707,0.0282,0.0278,0.0965
+Colombia v DR Congo,DR Congo,bet365,Simon Banza,20.2,0.693,0.52,0.0733,0.0707,0.0282,0.0278,0.0965
+Colombia v DR Congo,DR Congo,bet365,Meschack Elia,,0.693,0.52,0.0733,0.0707,0.0282,0.0278,0.0965
+Colombia v DR Congo,DR Congo,bet365,Cedric Bakambu,78.2,0.693,0.52,0.0733,0.0707,0.0406,0.0398,0.1077
+Colombia v DR Congo,DR Congo,bet365,Gael Kakuta,19.4,0.693,0.52,0.0397,0.0389,0.0406,0.0398,0.0772
+Colombia v DR Congo,DR Congo,bet365,Nathanael Mbuku,13.3,0.693,0.52,0.02,0.0198,0.0282,0.0278,0.0471
+Colombia v DR Congo,DR Congo,bet365,Brian Cipenga,15.1,0.693,0.52,0.0188,0.0186,0.0564,0.0548,0.0724
+Colombia v DR Congo,DR Congo,bet365,Edo Kayembe,65.2,0.693,0.52,0.0188,0.0186,0.0282,0.0278,0.0459
+Colombia v DR Congo,DR Congo,bet365,Charles Pickel,17.3,0.693,0.52,0.0143,0.0142,0.0182,0.018,0.0319
+Colombia v DR Congo,DR Congo,bet365,Samuel Moutoussamy,59.4,0.693,0.52,0.012,0.0119,0.0182,0.018,0.0297
+Colombia v DR Congo,DR Congo,bet365,Noah Sadiki,13.6,0.693,0.52,0.012,0.0119,0.012,0.0119,0.0237
+Colombia v DR Congo,DR Congo,bet365,Aaron Tshibola,23.5,0.693,0.52,0.0091,0.0091,0.0103,0.0103,0.0193
+Colombia v DR Congo,DR Congo,bet365,Ngal'ayel Mukau,98.0,0.693,0.52,0.0091,0.0091,0.012,0.0119,0.0209
+Colombia v DR Congo,DR Congo,bet365,Chancel Mbemba,98.0,0.693,0.52,0.0091,0.0091,0.0091,0.0091,0.018
+Colombia v DR Congo,DR Congo,bet365,Joris Kayembe,19.2,0.693,0.52,0.0073,0.0073,0.0182,0.018,0.0251
+Colombia v DR Congo,DR Congo,bet365,Dylan Batubinsika,15.6,0.693,0.52,0.0073,0.0073,0.0091,0.0091,0.0163
+Colombia v DR Congo,DR Congo,bet365,Gedeon Kalulu,17.0,0.693,0.52,0.0073,0.0073,0.012,0.0119,0.0191
+Colombia v DR Congo,DR Congo,bet365,Axel Tuanzebe,55.8,0.693,0.52,0.0059,0.0059,0.0103,0.0103,0.0161
+Colombia v DR Congo,DR Congo,bet365,Steve Kapuadi,62.6,0.693,0.52,0.0059,0.0059,0.0091,0.0091,0.0149
+Colombia v DR Congo,DR Congo,bet365,Aaron Wan-Bissaka,62.9,0.693,0.52,0.0059,0.0059,0.0182,0.018,0.0237
+Colombia v DR Congo,DR Congo,bet365,Arthur Masuaku,71.7,0.693,0.52,0.0059,0.0059,0.0282,0.0278,0.0335
+Colombia v DR Congo,DR Congo,model,Meschak Elia,9.1,0.693,0.52,0.0222,0.0216,0.0062,0.0061,0.0276
+Colombia v DR Congo,DR Congo,model,Lionel Mpasi Nzau,98.0,0.693,0.52,0.0,0.0,0.0,0.0,0.0
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Edin Dzeko,84.0,2.327,1.745,0.4184,0.3419,0.1133,0.1071,0.4124
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Haris Tabakovic,27.0,2.327,1.745,0.4184,0.3419,0.1497,0.139,0.4334
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Samed Bazdar,25.1,2.327,1.745,0.2958,0.2561,0.1133,0.1071,0.3358
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Jovo Lukic,22.1,2.327,1.745,0.2361,0.2103,0.0627,0.0608,0.2583
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Ermedin Demirovic,84.1,2.327,1.745,0.2361,0.2103,0.1133,0.1071,0.2949
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Ermin Mahmic,23.2,2.327,1.745,0.2048,0.1852,0.0291,0.0287,0.2086
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Kerim Alajbegovic,98.0,2.327,1.745,0.093,0.0888,0.1497,0.139,0.2155
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Esmir Bajraktarevic,18.4,2.327,1.745,0.0465,0.0455,0.1244,0.117,0.1571
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Armin Gigovic,17.9,2.327,1.745,0.0377,0.037,0.0627,0.0608,0.0955
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Amar Memic,69.5,2.327,1.745,0.0377,0.037,0.1497,0.139,0.1709
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Dzenis Burnic,15.8,2.327,1.745,0.0335,0.0329,0.0627,0.0608,0.0917
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Amir Hadziahmetovic,17.0,2.327,1.745,0.0335,0.0329,0.1244,0.117,0.146
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Ivan Sunjic,75.3,2.327,1.745,0.0251,0.0247,0.1244,0.117,0.1388
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Benjamin Tahirovic,50.9,2.327,1.745,0.0251,0.0247,0.0627,0.0608,0.084
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Ivan Basic,18.8,2.327,1.745,0.0231,0.0229,0.1133,0.1071,0.1276
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Arjan Malic,12.2,2.327,1.745,0.0231,0.0229,0.0231,0.0229,0.0452
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Nihad Mujakic,20.9,2.327,1.745,0.0231,0.0229,0.0188,0.0186,0.041
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Nikola Katic,52.3,2.327,1.745,0.0215,0.0212,0.0158,0.0157,0.0366
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Amar Dedic,54.5,2.327,1.745,0.0215,0.0212,0.0443,0.0434,0.0637
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Stjepan Radeljic,19.4,2.327,1.745,0.0215,0.0212,0.0158,0.0157,0.0366
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Sead Kolasinac,54.3,2.327,1.745,0.0188,0.0186,0.0215,0.0212,0.0394
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Tarik Muharemovic,98.0,2.327,1.745,0.0188,0.0186,0.0291,0.0287,0.0467
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,bet365,Dennis Hadzikadunic,21.5,2.327,1.745,0.0143,0.0142,0.0215,0.0212,0.0351
+Bosnia-Herzegovina v Qatar,Bosnia-Herzegovina,model,Nikola Vasilj,98.0,2.327,1.745,0.0,0.0,0.0,0.0,0.0
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Almoez Ali,26.6,0.86,0.645,0.1811,0.1657,0.0311,0.0307,0.1913
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Ahmed Alaaeldin,19.2,0.86,0.645,0.1223,0.1151,0.0311,0.0307,0.1422
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Hasan Al Haydos,,0.86,0.645,0.0941,0.0898,0.0804,0.0773,0.1602
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Mohammed Muntari,20.8,0.86,0.645,0.0941,0.0898,0.0311,0.0307,0.1177
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Akram Afif,62.1,0.86,0.645,0.0941,0.0898,0.114,0.1078,0.1879
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Ahmed Al Ganehi,23.8,0.86,0.645,0.0533,0.0519,0.0311,0.0307,0.081
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Edmilson Junior,72.2,0.86,0.645,0.038,0.0373,0.0385,0.0378,0.0737
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Tahsin Jamshid,10.4,0.86,0.645,0.0251,0.0248,0.0311,0.0307,0.0547
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Yusuf Abdurisag,82.2,0.86,0.645,0.0251,0.0248,0.0385,0.0378,0.0617
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Mohamed Al Manai,,0.86,0.645,0.0188,0.0186,0.0143,0.0142,0.0325
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Abdulaziz Hatem,,0.86,0.645,0.0188,0.0186,0.0187,0.0185,0.0368
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Pedro Miguel,98.0,0.86,0.645,0.012,0.0119,0.0131,0.013,0.0247
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Karim Boudiaf,18.6,0.86,0.645,0.012,0.0119,0.0187,0.0185,0.0303
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Jassem Gaber,,0.86,0.645,0.012,0.0119,0.0311,0.0307,0.0422
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Boualem Khoukhi,56.9,0.86,0.645,0.012,0.0119,0.0187,0.0185,0.0303
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Assim Madibo,98.0,0.86,0.645,0.012,0.0119,0.0131,0.013,0.0247
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Homam Ahmed,,0.86,0.645,0.0091,0.0091,0.0469,0.0458,0.0544
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Issa Laye,70.1,0.86,0.645,0.0091,0.0091,0.0143,0.0142,0.0231
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Lucas Mendes,19.4,0.86,0.645,0.0091,0.0091,0.0143,0.0142,0.0231
+Bosnia-Herzegovina v Qatar,Qatar,bet365,Sultan Al Brake,28.1,0.86,0.645,0.0073,0.0073,0.0143,0.0142,0.0214
+Bosnia-Herzegovina v Qatar,Qatar,model,Jassem Gaber Abdulsallam,72.3,0.86,0.645,0.026,0.0256,0.0669,0.0646,0.0886
+Bosnia-Herzegovina v Qatar,Qatar,model,Hassan Al Haydos,10.4,0.86,0.645,0.0246,0.024,0.0092,0.0091,0.0329
+Bosnia-Herzegovina v Qatar,Qatar,model,Homam Al-Amin,78.9,0.86,0.645,0.0046,0.0046,0.0196,0.0194,0.0239
+Bosnia-Herzegovina v Qatar,Qatar,model,Ayoub Al Oui,61.1,0.86,0.645,0.0036,0.0036,0.0152,0.0151,0.0186
+Bosnia-Herzegovina v Qatar,Qatar,model,Ahmed Fathi,10.4,0.86,0.645,0.0031,0.0031,0.0068,0.0068,0.0099
+Bosnia-Herzegovina v Qatar,Qatar,model,Mohamed Naceur Almanai,10.4,0.86,0.645,0.0031,0.0031,0.0068,0.0068,0.0099
+Bosnia-Herzegovina v Qatar,Qatar,model,Abdelaziz Hatem,10.4,0.86,0.645,0.0031,0.0031,0.0074,0.0073,0.0105
+Bosnia-Herzegovina v Qatar,Qatar,model,Al-Hashmi Al-Hussain,19.7,0.86,0.645,0.0012,0.0012,0.0091,0.009,0.0102
+Bosnia-Herzegovina v Qatar,Qatar,model,Mahmud Abunada,98.0,0.86,0.645,0.0,0.0,0.0,0.0,0.0
+Switzerland v Canada,Switzerland,bet365,Breel Embolo,79.0,1.409,1.056,0.2766,0.2416,0.0559,0.0544,0.2829
+Switzerland v Canada,Switzerland,bet365,Cedric Itten,18.3,1.409,1.056,0.1975,0.1792,0.0449,0.0439,0.2152
+Switzerland v Canada,Switzerland,bet365,Zeki Amdouni,18.0,1.409,1.056,0.1975,0.1792,0.0559,0.0544,0.2238
+Switzerland v Canada,Switzerland,bet365,Dan Ndoye,63.1,1.409,1.056,0.1368,0.1279,0.0841,0.0806,0.1982
+Switzerland v Canada,Switzerland,bet365,Noah Okafor,19.9,1.409,1.056,0.1368,0.1279,0.0559,0.0544,0.1753
+Switzerland v Canada,Switzerland,bet365,Christian Fassnacht,24.4,1.409,1.056,0.1005,0.0956,0.0688,0.0665,0.1557
+Switzerland v Canada,Switzerland,bet365,Ruben Vargas,18.4,1.409,1.056,0.0855,0.082,0.1642,0.1514,0.221
+Switzerland v Canada,Switzerland,bet365,Granit Xhaka,42.1,1.409,1.056,0.0315,0.031,0.0688,0.0665,0.0954
+Switzerland v Canada,Switzerland,bet365,Johan Manzambi,24.3,1.409,1.056,0.0315,0.031,0.0449,0.0439,0.0735
+Switzerland v Canada,Switzerland,bet365,Fabian Rieder,98.0,1.409,1.056,0.0315,0.031,0.0688,0.0665,0.0954
+Switzerland v Canada,Switzerland,bet365,Silvan Widmer,98.0,1.409,1.056,0.0188,0.0186,0.0688,0.0665,0.0839
+Switzerland v Canada,Switzerland,bet365,Michel Aebischer,98.0,1.409,1.056,0.0177,0.0175,0.0353,0.0347,0.0516
+Switzerland v Canada,Switzerland,bet365,Remo Freuler,98.0,1.409,1.056,0.0177,0.0175,0.0195,0.0194,0.0365
+Switzerland v Canada,Switzerland,bet365,Ardon Jashari,17.3,1.409,1.056,0.0158,0.0157,0.0195,0.0194,0.0347
+Switzerland v Canada,Switzerland,bet365,Miro Muheim,,1.409,1.056,0.0158,0.0157,0.0559,0.0544,0.0692
+Switzerland v Canada,Switzerland,bet365,Denis Zakaria,21.0,1.409,1.056,0.0143,0.0142,0.0195,0.0194,0.0333
+Switzerland v Canada,Switzerland,bet365,Djibril Sow,23.9,1.409,1.056,0.0143,0.0142,0.0353,0.0347,0.0484
+Switzerland v Canada,Switzerland,bet365,Manuel Akanji,45.7,1.409,1.056,0.012,0.0119,0.012,0.0119,0.0237
+Switzerland v Canada,Switzerland,bet365,Ricardo Rodriguez,47.7,1.409,1.056,0.012,0.0119,0.0353,0.0347,0.0462
+Switzerland v Canada,Switzerland,bet365,Nico Elvedi,71.4,1.409,1.056,0.012,0.0119,0.0103,0.0103,0.0221
+Switzerland v Canada,Switzerland,bet365,Eray Comert,17.2,1.409,1.056,0.012,0.0119,0.0103,0.0103,0.0221
+Switzerland v Canada,Switzerland,bet365,Aurele Amenda,14.6,1.409,1.056,0.0103,0.0103,0.0103,0.0103,0.0205
+Switzerland v Canada,Switzerland,bet365,Luca Jaquez,21.6,1.409,1.056,0.0103,0.0103,0.012,0.0119,0.0221
+Switzerland v Canada,Switzerland,model,Gregor Kobel,98.0,1.409,1.056,0.0,0.0,0.0,0.0,0.0
+Switzerland v Canada,Canada,bet365,Jonathan David,83.9,1.2,0.9,0.2128,0.1917,0.0645,0.0624,0.2422
+Switzerland v Canada,Canada,bet365,Tani Oluwaseyi,17.4,1.2,0.9,0.1751,0.1606,0.0516,0.0503,0.2028
+Switzerland v Canada,Canada,bet365,Promise David,22.1,1.2,0.9,0.1751,0.1606,0.031,0.0305,0.1862
+Switzerland v Canada,Canada,bet365,Cyle Larin,81.2,1.2,0.9,0.1751,0.1606,0.0516,0.0503,0.2028
+Switzerland v Canada,Canada,bet365,Tajon Buchanan,64.6,1.2,0.9,0.0697,0.0674,0.0405,0.0397,0.1044
+Switzerland v Canada,Canada,bet365,Alphonso Davies,25.6,1.2,0.9,0.0697,0.0674,0.0797,0.0766,0.1389
+Switzerland v Canada,Canada,bet365,Jacob Shaffelburg,19.3,1.2,0.9,0.0697,0.0674,0.0797,0.0766,0.1389
+Switzerland v Canada,Canada,bet365,Liam Millar,18.1,1.2,0.9,0.0416,0.0407,0.0645,0.0624,0.1006
+Switzerland v Canada,Canada,bet365,Jayden Nelson,21.0,1.2,0.9,0.0416,0.0407,0.0645,0.0624,0.1006
+Switzerland v Canada,Canada,bet365,Jonathan Osorio,19.3,1.2,0.9,0.0188,0.0186,0.031,0.0305,0.0485
+Switzerland v Canada,Canada,bet365,Ali Ahmed,79.0,1.2,0.9,0.0188,0.0186,0.0645,0.0624,0.0799
+Switzerland v Canada,Canada,bet365,Nathan-Dylan Saliba,27.4,1.2,0.9,0.0188,0.0186,0.0158,0.0157,0.034
+Switzerland v Canada,Canada,bet365,Derek Cornelius,54.5,1.2,0.9,0.0143,0.0142,0.0131,0.013,0.027
+Switzerland v Canada,Canada,bet365,Mathieu Choiniere,23.3,1.2,0.9,0.0143,0.0142,0.0177,0.0175,0.0315
+Switzerland v Canada,Canada,bet365,Stephen Eustaquio,53.2,1.2,0.9,0.0143,0.0142,0.0405,0.0397,0.0533
+Switzerland v Canada,Canada,bet365,Niko Sigur,18.7,1.2,0.9,0.0103,0.0103,0.0645,0.0624,0.0721
+Switzerland v Canada,Canada,bet365,Alfie Jones,,1.2,0.9,0.0103,0.0103,0.0143,0.0142,0.0243
+Switzerland v Canada,Canada,bet365,Joel Waterman,23.5,1.2,0.9,0.0103,0.0103,0.0177,0.0175,0.0276
+Switzerland v Canada,Canada,bet365,Alistair Johnston,55.8,1.2,0.9,0.0103,0.0103,0.0158,0.0157,0.0258
+Switzerland v Canada,Canada,bet365,Richie Laryea,98.0,1.2,0.9,0.0103,0.0103,0.0516,0.0503,0.06
+Switzerland v Canada,Canada,bet365,Moise Bombito,22.6,1.2,0.9,0.0103,0.0103,0.0131,0.013,0.0231
+Switzerland v Canada,Canada,bet365,Luc De Fougerolles,81.2,1.2,0.9,0.0081,0.0081,0.0131,0.013,0.0209
+Switzerland v Canada,Canada,model,Ismael Koné,70.4,1.2,0.9,0.071,0.0684,0.0679,0.0655,0.1295
+Switzerland v Canada,Canada,model,Maxime Crépeau,98.0,1.2,0.9,0.0,0.0,0.0,0.0,0.0

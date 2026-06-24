@@ -114,6 +114,8 @@ def build_html(df: pd.DataFrame, meta: dict, lineups=None) -> str:
             f"<td class='num gap'>{gap_html}</td>"
             f"<td class='dim small'>{html.escape(str(r.get('b365_lines') or ''))}</td>"
             f"<td class='num'>{_fmt_prob(r.get('prob_pp') if r.get('prob_pp') is not None else r.get('prob_ud'))}</td>"
+            f"<td class='num model'>{_fmt_prob(r.get('prob_model'))}</td>"
+            f"<td class='num dim small'>{_fmt_num(r.get('fair_model'))}</td>"
             f"<td class='play'>{html.escape(play)}</td>"
             f"<td class='num edge {edge_cls}' data-edge='{'' if edge is None or pd.isna(edge) else edge}'>{_fmt_pct(edge)}</td>"
             f"<td class='dim small'>{html.escape(str(r.get('method') or ''))}</td>"
@@ -121,7 +123,8 @@ def build_html(df: pd.DataFrame, meta: dict, lineups=None) -> str:
         )
 
     headers = ["Player", "Team", "Opp", "Stat", "PP", "UD", "Gap",
-               "b365 lines", "b365 P(o)", "Best play", "Edge", "Method"]
+               "b365 lines", "b365 P(o)", "Model P(o)", "Model fair",
+               "Best play", "Edge", "Method"]
     th = "".join(f"<th onclick='sortBy({i})'>{h}</th>" for i, h in enumerate(headers))
 
     matches = sorted({str(m).strip() for m in df.get("match", pd.Series(dtype=str)).tolist()
@@ -184,6 +187,7 @@ def build_html(df: pd.DataFrame, meta: dict, lineups=None) -> str:
  .player {{ font-weight:600; }}
  .dim {{ color:var(--dim); }} .small {{ font-size:12px; }}
  .play {{ font-weight:600; }}
+ .model {{ color:#9fc6ff; }}
  .edge.pos {{ color:#5ad19a; background:var(--posbg); }}
  .edge.neg {{ color:#f08a96; }}
  tr:hover td {{ background:#1c212b; }}

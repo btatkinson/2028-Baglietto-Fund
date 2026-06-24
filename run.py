@@ -64,17 +64,33 @@ def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True):
     b365_players = b365[["player", "stat"]].drop_duplicates().shape[0] if len(b365) else 0
     log(f"bet365:     {len(b365):4d} prop rows  ({b365_players} player-stat ladders)")
 
-    df = matcher.join(ud, pp, b365)
+    # independent model fair value from each confirmed XI (empty until ~1h pre-KO)
+    try:
+        import projection
+        proj = projection.project(b365)
+        avail = [f["match"] for f in proj["fixtures"] if f.get("available")]
+        projd = [f["match"] for f in proj["fixtures"] if f.get("lineup_kind") == "projected"]
+        log(f"Projection: {proj['n_players']} players priced across {len(avail)} confirmed XI"
+            + (f" ({', '.join(avail)})" if avail else "")
+            + (f"; {len(projd)} projected XI ({', '.join(projd)})" if projd else "")
+            + ("; no XI released yet" if not avail and not projd else "")
+            + (f" — {proj['note']}" if proj.get("note") else ""))
+    except Exception as e:
+        proj = None
+        log(f"Projection skipped: {e}")
+
+    df = matcher.join(ud, pp, b365, proj=proj)
     if df.attrs.get("margins"):
         lines.append("One-way margins: " + df.attrs["margins"])
     n_edge = int((df["best_edge"].fillna(-9) > 0).sum())
     log(f"Matched/joined: {len(df):4d} rows  ({int(df['has_b365'].sum())} bet365-backed, "
         f"{n_edge} with positive edge)")
 
-    # snapshot every source's raw prices for later devig/weight calibration
+    # snapshot every source's raw prices (+ the model projection) for later
+    # devig/weight calibration and reliability scoring against outcomes
     try:
         import calibration
-        added, total = calibration.log_snapshot(ud, pp, b365)
+        added, total = calibration.log_snapshot(ud, pp, b365, joined=df)
         log(f"Calibration log: +{added} price rows (total {total})")
     except Exception as e:
         log(f"Calibration log skipped: {e}")
@@ -93,6 +109,13 @@ def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True):
     }
     path = rpt.write_report(df, meta, lus)
     log(f"Report -> {path}")
+
+    try:
+        import scorers
+        sp, sc = scorers.write(b365, proj)
+        log(f"Scorer/assist board -> {sp}  (+ {sc.name})")
+    except Exception as e:
+        log(f"Scorer board skipped: {e}")
 
     prev = df[df["best_edge"].fillna(-9).abs() >= min_edge].head(20)
     cols = [c for c in ["name", "stat", "pp_line", "ud_line", "b365_lines",

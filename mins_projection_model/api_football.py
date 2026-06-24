@@ -59,7 +59,8 @@ def get_fixtures(league, season, finished_only=True, max_fixtures=None):
     return resp[:max_fixtures] if max_fixtures else resp
 
 
-_STAT_KEYS = {"Ball Possession": "poss", "Shots on Goal": "sot", "Total Shots": "shots"}
+_STAT_KEYS = {"Ball Possession": "poss", "Shots on Goal": "sot", "Total Shots": "shots",
+              "Corner Kicks": "corners"}
 
 
 def _num(v):
@@ -72,7 +73,7 @@ def _num(v):
 
 
 def _team_stats(fixture_id):
-    """{team_id: {poss, sot, shots}} from one cached fixtures/statistics call."""
+    """{team_id: {poss, sot, shots, corners}} from one cached fixtures/statistics call."""
     out = {}
     for team in _get("fixtures/statistics", fixture=fixture_id).get("response", []):
         vals = {}
@@ -85,7 +86,9 @@ def _team_stats(fixture_id):
 
 
 def _team_row(f, neutral=True, with_possession=True) -> dict:
-    """One team_match row (date/home/away/goals + possession + SoT) from a fixture."""
+    """One team_match row (date/home/away/goals + possession + SoT + total shots +
+    corners) from a fixture. Total shots & corners come free from the same cached
+    statistics call; they feed the global shots/corners ratings (script features)."""
     fx, teams, goals = f["fixture"], f["teams"], f["goals"]
     hs = aw = {}
     if with_possession:
@@ -95,7 +98,10 @@ def _team_row(f, neutral=True, with_possession=True) -> dict:
             "home": teams["home"]["name"], "away": teams["away"]["name"],
             "home_g": goals["home"], "away_g": goals["away"],
             "home_poss": hs.get("poss"), "away_poss": aw.get("poss"),
-            "home_sot": hs.get("sot"), "away_sot": aw.get("sot"), "neutral": neutral}
+            "home_sot": hs.get("sot"), "away_sot": aw.get("sot"),
+            "home_shots": hs.get("shots"), "away_shots": aw.get("shots"),
+            "home_corners": hs.get("corners"), "away_corners": aw.get("corners"),
+            "neutral": neutral}
 
 
 def _player_rows(f, source="intl") -> list:
@@ -180,6 +186,14 @@ def _get_nocache(path, **params):
     if j.get("errors"):
         raise RuntimeError(f"{path} {params} -> {j['errors']}")
     return j
+
+
+def fixtures_on(day):
+    """All fixtures (any status) kicking off on `day` (YYYY-MM-DD), uncached. Each
+    item is the raw API-Football fixture object; the caller resolves the one it
+    wants by team name. Used by the wc_props bridge to find a confirmed XI's
+    fixture_id from a bet365 'Home v Away' label without hardcoding ids."""
+    return _get_nocache("fixtures", date=day).get("response", [])
 
 
 def fixture_meta(fixture_id):

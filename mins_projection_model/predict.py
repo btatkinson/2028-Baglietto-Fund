@@ -24,7 +24,7 @@ from team_strength import load_elos
 
 @functools.lru_cache(maxsize=1)
 def _models():
-    poss, goals, sot = load_elos()
+    poss, goals, sot, shots, corners = load_elos()
     heads = {s: rate_model.load(s) for s in RATE_STATS}
     prior = minutes_model.load_prior()
     disp = pricing.load_dispersion()
@@ -35,31 +35,37 @@ def _models():
     for s in RATE_STATS:
         e = pm.assign(_e=player_ewm(pm, stat=s)).dropna(subset=["_e"])
         last_ewm[s] = e.groupby("player")["_e"].last().to_dict()
-    return poss, goals, sot, heads, prior, last_ewm, disp
+    return poss, goals, sot, shots, corners, heads, prior, last_ewm, disp
 
 
-def _script(poss, goals, sot, team, opp, neutral=True, mkt_team_g=None, mkt_opp_g=None):
-    """Script (context) features for the rate heads. The Goals-Elo can't price
-    cross-confederation mismatches (France/Iraq came out 0.87/0.80), so when the
-    market's expected goals are supplied (bet365 Team Total Goals) we override the
-    Elo's. NOTE: the heads were trained on Elo-scale exp_*_g (~0.6–1.3), so a tree
-    won't extrapolate a 3.3 linearly — the override corrects direction/level within
-    range; the per-team goalscorer anchor (devig) is what actually sets goal levels."""
-    share = poss.expected(team, opp, neutral)
+def _script(poss, goals, sot, shots, corners, team, opp, neutral=True,
+            mkt_team_g=None, mkt_opp_g=None):
+    """Script (context) features for the rate heads, from the GLOBAL ratings
+    (possession share, goals, SoT, total shots, corners — team & opp each). The
+    market's expected goals (bet365 Team Total Goals), when supplied, override the
+    rating's goals; the heads are now trained on the global ratings' realistic range
+    so the override interpolates rather than extrapolates. NaN for shots/corners if
+    those ratings are absent (old elos.json)."""
+    nan = float("nan")
     eg_t, eg_o = goals.expected(team, opp, neutral)
     es_t, es_o = sot.expected(team, opp, neutral)
+    sh_t, sh_o = shots.expected(team, opp, neutral) if shots else (nan, nan)
+    co_t, co_o = corners.expected(team, opp, neutral) if corners else (nan, nan)
     if mkt_team_g is not None:
         eg_t = float(mkt_team_g)
     if mkt_opp_g is not None:
         eg_o = float(mkt_opp_g)
-    return {"exp_team_share": share, "exp_team_g": eg_t, "exp_opp_g": eg_o,
-            "exp_team_sot": es_t, "exp_opp_sot": es_o}
+    return {"exp_team_share": poss.expected(team, opp, neutral),
+            "exp_team_g": eg_t, "exp_opp_g": eg_o,
+            "exp_team_sot": es_t, "exp_opp_sot": es_o,
+            "exp_team_shots": sh_t, "exp_opp_shots": sh_o,
+            "exp_team_corners": co_t, "exp_opp_corners": co_o}
 
 
 def predict(player: str, position: str, context: dict) -> dict:
-    poss, goals, sot, heads, prior, last_ewm, _disp = _models()
+    poss, goals, sot, shots, corners, heads, prior, last_ewm, _disp = _models()
     team, opp, neutral = context["team"], context["opponent"], context.get("neutral", True)
-    script = _script(poss, goals, sot, team, opp, neutral,
+    script = _script(poss, goals, sot, shots, corners, team, opp, neutral,
                      context.get("market_team_g"), context.get("market_opp_g"))
     row = {"position": position or "NA", "source": "intl", **script}
     for s in RATE_STATS:
@@ -72,23 +78,105 @@ def predict(player: str, position: str, context: dict) -> dict:
             "p_full90": p_full, "rates90": rates, **script}
 
 
+@functools.lru_cache(maxsize=1)
+def _player_matches_sorted():
+    pm = pd.read_parquet(config.DATA_DIR / "player_matches.parquet")
+    return pm.sort_values(["team", "date"])
+
+
+def recent_xi(team: str):
+    """Pre-XI FALLBACK lineup for a team: the XI + bench it most recently fielded
+    (from player_matches.parquet). Returns ([(player, pos, is_starter)], asof_date)
+    — empty list if the team is absent. `team` must be the API-Football name (so it
+    matches the parquet + the Elo lookup); resolve it from af.fixtures_on upstream.
+    This is only as current as the data — warm up stale teams first (warmup.py)."""
+    pm = _player_matches_sorted()
+    t = pm[pm["team"] == team]
+    if not len(t):
+        return [], None
+    asof = t["date"].max()
+    last_mid = t.loc[t["date"] == asof, "match_id"].iloc[0]
+    g = t[t["match_id"] == last_mid]
+    starters = [(r.player, r.position, True) for r in g.itertuples() if r.is_starter]
+    subs = [(r.player, r.position, False) for r in g.itertuples() if not r.is_starter]
+    return starters + subs, str(asof)[:10]
+
+
+# Team-coherence anchors: each maps a player's script dict -> the team total that
+# the per-player projections of that stat should SUM to. The heads set the per-player
+# SHARE; the (now-trustworthy) team rating/market sets the LEVEL — the same coherence
+# idea as normalize_roster_minutes, applied to counting totals. goals uses exp_team_g
+# (= the market override when supplied, else the rating); saves uses the SoT/goals
+# identity (shots on target faced that weren't conceded). Stats with no clean team
+# total (passes/tackles/assists/ga) are left unanchored.
+# Share of goals that carry an assist. MEASURED at 0.686 over the API-Football
+# training data, and it's a LEAGUE CONSTANT, not a team trait: a variance
+# decomposition put the real team-to-team spread at ~0 (observed sd 0.078 ≈ pure
+# binomial noise sd 0.080; split-half persistence corr −0.45). So we anchor every
+# team's assist total to this constant × its goal total — a team-specific ratio
+# (historical or model-predicted) would only add noise. Team creativity differences
+# live in the per-player assist head (who assists), not this fraction. (Differs from
+# devig.py's 0.75, which is the bet365 assist market's different definition/source.)
+ASSIST_FRACTION = 0.686
+_ANCHOR_TARGETS = {
+    "goals": lambda s: s.get("exp_team_g"),
+    "assists": lambda s: (None if s.get("exp_team_g") is None
+                          else ASSIST_FRACTION * float(s["exp_team_g"])),
+    "sot": lambda s: s.get("exp_team_sot"),
+    "shots": lambda s: s.get("exp_team_shots"),
+    "saves": lambda s: (None if s.get("exp_opp_sot") is None or s.get("exp_opp_g") is None
+                        else max(0.0, float(s["exp_opp_sot"]) - float(s["exp_opp_g"]))),
+}
+
+
+def _anchor_rates(rows, norm, anchor_stats):
+    """Scale each team's per-player rate90 so the anchored stats' team SUM matches the
+    team total — preserving the heads' relative shares. Mutates rows[*]['rates90']."""
+    if not rows or not anchor_stats:
+        return {}
+    script0 = next(iter(rows.values()))
+    factors = {}
+    for stat in anchor_stats:
+        target = _ANCHOR_TARGETS[stat](script0)
+        try:
+            target = float(target)
+        except (TypeError, ValueError):
+            continue
+        if target != target or target < 0:                  # NaN / negative
+            continue
+        cur = sum(d["rates90"].get(stat, 0.0) * norm[p] / 90.0 for p, d in rows.items())
+        if cur > 1e-9:
+            factors[stat] = target / cur
+    for d in rows.values():
+        for stat, f in factors.items():
+            d["rates90"][stat] *= f
+    return factors
+
+
 def price_lineup(team, opp, lineup, context=None, book_totals=None,
-                 lines=None, half_spread=0.02):
+                 lines=None, half_spread=0.02, anchor=True):
     """lineup: [(player, position, is_starter), ...].
     book_totals: optional {player: {stat: book_total}} — reconcile minutes off the
         books' counting lines ACROSS the listed stats.
     lines: optional {player: {stat: line}} — the Kalshi/DFS thresholds to price;
         each priced stat then carries p_over + a YES bid/ask at `half_spread`.
+    anchor: scale per-player goals/sot/shots/saves rates so each team SUM matches the
+        team rating/market total (shares from the heads, level from the rating).
     Returns {player: dict} with roster-normalized minutes, expected count per stat
     in d['exp'], and the full pricing (mean/var/fair_line[/p_over/quote]) in
     d['price']."""
-    poss, goals, sot, heads, prior, last_ewm, disp = _models()
+    poss, goals, sot, shots, corners, heads, prior, last_ewm, disp = _models()
     ctx = dict(context or {})
     ctx["team"], ctx["opponent"] = team, opp
     match_minutes = ctx.get("match_minutes", 90)
     rows = {}
     for player, pos, starter in lineup:
         d = predict(player, pos, dict(ctx, is_starter=starter))
+        d["is_gk"] = str(pos or "").strip().upper() in ("G", "GK", "GOALKEEPER")
+        if d["is_gk"]:               # keepers don't score/assist — clamp before anchoring
+            for s in ("goals", "assists", "ga"):
+                if s in d["rates90"]:
+                    d["rates90"][s] = 0.0
         bt = (book_totals or {}).get(player)
         if bt:                                      # books' counting lines -> implied minutes
             our = {s: d["rates90"].get(s) for s in bt}
@@ -101,8 +189,15 @@ def price_lineup(team, opp, lineup, context=None, book_totals=None,
         appear = min(minutes_model.EXP_SUBS_USED / len(bench), 1.0)
         for p in bench:
             rows[p]["minutes_mean"] *= appear
+    gk_cap = match_minutes + 8                   # full match incl. stoppage (= roster cap)
+    for d in rows.values():                      # keepers: starter plays the full match, backups ~never
+        if d.get("is_gk"):
+            d["minutes_mean"] = gk_cap if d["p_start"] >= 1 else 0.0
     raw = {p: d["minutes_mean"] for p, d in rows.items()}
     norm = minutes_model.normalize_roster_minutes(raw, match_minutes=match_minutes)
+    # team-coherence: pin each anchored stat's team sum to the team rating/market total
+    anchor_stats = [s for s in _ANCHOR_TARGETS if s in RATE_STATS] if anchor else []
+    _anchor_rates(rows, norm, anchor_stats)
     for p, d in rows.items():
         d["minutes_raw"], d["minutes_mean"] = raw[p], norm[p]
         d["exp"] = {s: r * norm[p] / 90.0 for s, r in d["rates90"].items()}

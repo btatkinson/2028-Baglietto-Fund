@@ -126,6 +126,110 @@ class LinearElo:
         return eh, ea
 
 
+class _GlobalAttackDefense:
+    """Walk-forward GLOBAL attack/defence fit for a per-team count stat (Massey/
+    Poisson over the whole graph, not an online nudge — so sparse cross-cluster
+    links propagate). `link='log'` => Poisson MLE (goals); `link='identity'` =>
+    ridge least-squares (SoT/shots/corners, mid-counts where a linear residual
+    reads in the stat's own units). `refit_before(cutoff)` fits on matches strictly
+    before row `cutoff` (leak-free). Coefs are stored in the GoalsElo/LinearElo sign
+    convention (defence positive = suppresses), so the existing containers serve
+    inference unchanged. mu is log(mean) for log-link, the raw mean for identity."""
+
+    def __init__(self, tm, date_col, home_col, away_col, h_col, a_col,
+                 neutral_col, alpha, home_seed, mean_seed, link="log"):
+        self.alpha, self.link = alpha, link
+        self.mu = math.log(mean_seed) if link == "log" else float(mean_seed)
+        self.home_adv, self.attack, self.defense = home_seed, {}, {}
+        self.window_n = 0
+        atk, dfn, home, val, midx = [], [], [], [], []
+        for i, (_, r) in enumerate(tm.iterrows()):
+            neutral = bool(r[neutral_col]) if neutral_col else False
+            hadv = 0.0 if neutral else 1.0
+            for scorer, conceder, hv, v in ((r[home_col], r[away_col], hadv, r[h_col]),
+                                            (r[away_col], r[home_col], 0.0, r[a_col])):
+                atk.append(scorer); dfn.append(conceder); home.append(hv)
+                val.append(v); midx.append(i)
+        self._long = pd.DataFrame({"atk": atk, "dfn": dfn, "home": home,
+                                   "v": val, "midx": pd.array(midx)})
+        A = pd.get_dummies(self._long["atk"], prefix="a")
+        D = pd.get_dummies(self._long["dfn"], prefix="d")
+        self._X = pd.concat([A, D, self._long["home"]], axis=1).astype(float)
+        self._y = pd.to_numeric(self._long["v"], errors="coerce")
+        self._midx = self._long["midx"].to_numpy()
+
+    def refit_before(self, cutoff):
+        mask = (self._midx < cutoff) & self._y.notna().to_numpy()
+        self.window_n = int(cutoff)
+        if int(mask.sum()) < 30:        # too thin to fit — keep the cold-start anchor
+            self.attack, self.defense = {}, {}
+            return
+        if self.link == "log":
+            from sklearn.linear_model import PoissonRegressor
+            m = PoissonRegressor(alpha=self.alpha, max_iter=3000, fit_intercept=True)
+        else:
+            from sklearn.linear_model import Ridge
+            m = Ridge(alpha=self.alpha, fit_intercept=True)
+        m.fit(self._X[mask], self._y[mask])
+        coef = dict(zip(self._X.columns, m.coef_))
+        self.mu = float(m.intercept_)
+        self.home_adv = float(coef.get("home", self.home_adv))
+        self.attack = {c[2:]: float(v) for c, v in coef.items() if c.startswith("a_")}
+        self.defense = {c[2:]: -float(v) for c, v in coef.items() if c.startswith("d_")}
+
+    def expected(self, home, away, neutral=False):
+        h = 0.0 if neutral else self.home_adv
+        a_h, a_a = self.attack.get(home, 0.0), self.attack.get(away, 0.0)
+        d_h, d_a = self.defense.get(home, 0.0), self.defense.get(away, 0.0)
+        if self.link == "log":
+            return math.exp(self.mu + a_h - d_a + h), math.exp(self.mu + a_a - d_h)
+        return max(0.0, self.mu + a_h - d_a + h), max(0.0, self.mu + a_a - d_h)
+
+
+class _GlobalShare:
+    """Walk-forward GLOBAL possession-share rating (one rating per team), fit by
+    ridge least-squares on the logit of the observed home share:
+        logit(home_share) = R_home - R_away + home_adv.
+    Signed design (home +1 / away -1) so the same fit propagates across the graph.
+    Stored in PossessionElo's ratings dict for unchanged inference."""
+
+    def __init__(self, tm, date_col, home_col, away_col, hposs_col,
+                 neutral_col, alpha, home_seed):
+        self.alpha, self.home_adv, self.ratings, self.window_n = alpha, home_seed, {}, 0
+        teams = pd.unique(pd.concat([tm[home_col], tm[away_col]]))
+        self._cols = {t: i for i, t in enumerate(teams)}
+        rows, y, midx = [], [], []
+        import numpy as np
+        for i, (_, r) in enumerate(tm.iterrows()):
+            p = r.get(hposs_col)
+            if pd.isna(p):
+                continue
+            share = min(max(float(p) / 100.0, 0.01), 0.99)
+            row = np.zeros(len(teams) + 1)
+            row[self._cols[r[home_col]]] += 1.0
+            row[self._cols[r[away_col]]] -= 1.0
+            row[-1] = 0.0 if (neutral_col and bool(r[neutral_col])) else 1.0
+            rows.append(row); y.append(math.log(share / (1 - share))); midx.append(i)
+        self._X = np.array(rows) if rows else np.zeros((0, len(teams) + 1))
+        self._y = np.array(y)
+        self._midx = np.array(midx)
+
+    def refit_before(self, cutoff):
+        from sklearn.linear_model import Ridge
+        self.window_n = int(cutoff)
+        mask = self._midx < cutoff
+        if int(mask.sum()) < 30:
+            self.ratings = {}
+            return
+        m = Ridge(alpha=self.alpha, fit_intercept=False).fit(self._X[mask], self._y[mask])
+        self.ratings = {t: float(m.coef_[i]) for t, i in self._cols.items()}
+        self.home_adv = float(m.coef_[-1])
+
+    def expected(self, home, away, neutral=False):
+        h = 0.0 if neutral else self.home_adv
+        return _logistic(self.ratings.get(home, 0.0) - self.ratings.get(away, 0.0) + h)
+
+
 def seed_prior(elo, team, value):
     """Cold-start a national team whose match history is too thin to converge —
     e.g. map FIFA rank or a squad-club aggregate to a starting rating."""
@@ -140,6 +244,8 @@ def build_ratings(team_matches: pd.DataFrame, date_col="date",
                   home_col="home", away_col="away",
                   hposs_col="home_poss", hg_col="home_g", ag_col="away_g",
                   hsot_col="home_sot", asot_col="away_sot",
+                  hshots_col="home_shots", ashots_col="away_shots",
+                  hcorners_col="home_corners", acorners_col="away_corners",
                   neutral_col=None, id_col="match_id"):
     """Walk team-matches in date order; emit a pre-match rating row per fixture
     (leak-free) and return the fitted Elos for inference. Source-agnostic — feed
@@ -147,47 +253,98 @@ def build_ratings(team_matches: pd.DataFrame, date_col="date",
     source's frame shape differs. `neutral_col`, if given, reads a per-row bool
     (WC/continental finals are neutral-site, so the home bump is dropped).
 
-    Returns (snaps, poss, goals, sot). `sot` is a LinearElo whose expected
-    shots-on-target — especially the OPPONENT's — drives the saves/shots heads."""
-    poss = PossessionElo(config.POSS_K, config.POSS_HOME)
-    goals = GoalsElo(config.GOALS_K, config.GOALS_HOME, math.log(config.GOALS_MEAN))
-    sot = LinearElo(config.SOT_K, config.SOT_HOME, config.SOT_MEAN)
-    snaps = []
-    for _, r in team_matches.sort_values(date_col).iterrows():
+    Possession (logit share), goals (Poisson) and SoT (identity) are ALL
+    WALK-FORWARD GLOBAL fits now, refit per month on the expanding window (leak-free).
+    Each snapshot carries `warm` — True once the window has >= GOALS_WARMUP_MIN_MATCHES
+    and BOTH teams have >= GOALS_WARMUP_TEAM_MATCHES priors — so the trainer can
+    withhold cold, signal-less early rows.
+
+    Returns (snaps, poss, goals, sot, shots, corners), each the FINAL all-matches fit
+    in its container (PossessionElo/GoalsElo/LinearElo) for unchanged inference. shots
+    & corners are identity attack/defence ratings whose expected values become extra
+    script features (shots drives the player-shots head; corners is a pressure proxy).
+    Rows missing the shots/corners columns (old captures) yield empty fits, harmlessly."""
+    tm = team_matches.sort_values(date_col).reset_index(drop=True)
+    have_shots = hshots_col in tm.columns and ashots_col in tm.columns
+    have_corn = hcorners_col in tm.columns and acorners_col in tm.columns
+    gp = _GlobalShare(tm, date_col, home_col, away_col, hposs_col, neutral_col,
+                      config.POSS_RIDGE, config.POSS_HOME)
+    gg = _GlobalAttackDefense(tm, date_col, home_col, away_col, hg_col, ag_col,
+                              neutral_col, config.GOALS_RIDGE, config.GOALS_HOME,
+                              config.GOALS_MEAN, link="log")
+    gs = _GlobalAttackDefense(tm, date_col, home_col, away_col, hsot_col, asot_col,
+                              neutral_col, config.SOT_RIDGE, config.SOT_HOME,
+                              config.SOT_MEAN, link="identity")
+    gsh = (_GlobalAttackDefense(tm, date_col, home_col, away_col, hshots_col, ashots_col,
+                                neutral_col, config.SHOTS_RIDGE, config.SOT_HOME,
+                                config.SHOTS_MEAN, link="identity") if have_shots else None)
+    gc = (_GlobalAttackDefense(tm, date_col, home_col, away_col, hcorners_col, acorners_col,
+                               neutral_col, config.CORNERS_RIDGE, config.SOT_HOME,
+                               config.CORNERS_MEAN, link="identity") if have_corn else None)
+    raters = [g for g in (gp, gg, gs, gsh, gc) if g is not None]
+    team_min, win_min = config.GOALS_WARMUP_TEAM_MATCHES, config.GOALS_WARMUP_MIN_MATCHES
+
+    snaps, counts, cur_month = [], {}, None
+    for i, r in tm.iterrows():
         h, a = r[home_col], r[away_col]
         neutral = bool(r[neutral_col]) if neutral_col else False
-        exp_share = poss.expected(h, a, neutral)
-        eh, ea = goals.expected(h, a, neutral)
-        esh, esa = sot.expected(h, a, neutral)
+        month = str(r[date_col])[:7]
+        if month != cur_month:               # refit all on everything before this month
+            for g in raters:
+                g.refit_before(i)
+            cur_month = month
+        eh, ea = gg.expected(h, a, neutral)
+        esh, esa = gs.expected(h, a, neutral)
+        warm = (gg.window_n >= win_min
+                and counts.get(h, 0) >= team_min and counts.get(a, 0) >= team_min)
         snap = {"date": r[date_col], "home": h, "away": a,
-                "exp_home_share": exp_share, "exp_home_g": eh, "exp_away_g": ea,
-                "exp_home_sot": esh, "exp_away_sot": esa}
-        if id_col and id_col in team_matches.columns:
+                "exp_home_share": gp.expected(h, a, neutral),
+                "exp_home_g": eh, "exp_away_g": ea,
+                "exp_home_sot": esh, "exp_away_sot": esa, "warm": warm}
+        if gsh is not None:
+            snap["exp_home_shots"], snap["exp_away_shots"] = gsh.expected(h, a, neutral)
+        if gc is not None:
+            snap["exp_home_corners"], snap["exp_away_corners"] = gc.expected(h, a, neutral)
+        if id_col and id_col in tm.columns:
             snap["match_id"] = r[id_col]            # lets build_training_frame join cleanly
         snaps.append(snap)
-        if pd.notna(r.get(hposs_col)):
-            poss.update(h, a, float(r[hposs_col]) / 100.0, neutral)
-        if pd.notna(r.get(hg_col)) and pd.notna(r.get(ag_col)):
-            goals.update(h, a, float(r[hg_col]), float(r[ag_col]), neutral)
-        if pd.notna(r.get(hsot_col)) and pd.notna(r.get(asot_col)):
-            sot.update(h, a, float(r[hsot_col]), float(r[asot_col]), neutral)
-    return pd.DataFrame(snaps), poss, goals, sot
+        counts[h] = counts.get(h, 0) + 1
+        counts[a] = counts.get(a, 0) + 1
+    for g in raters:
+        g.refit_before(len(tm))               # final fit on ALL matches for inference
+    poss = PossessionElo(home_adv=gp.home_adv, ratings=dict(gp.ratings))
+    goals = GoalsElo(home_adv=gg.home_adv, mu=gg.mu,
+                     attack=dict(gg.attack), defense=dict(gg.defense))
+    sot = LinearElo(home_adv=gs.home_adv, mu=gs.mu,
+                    attack=dict(gs.attack), defense=dict(gs.defense))
+    shots = (LinearElo(home_adv=gsh.home_adv, mu=gsh.mu, attack=dict(gsh.attack),
+                       defense=dict(gsh.defense)) if gsh is not None else None)
+    corners = (LinearElo(home_adv=gc.home_adv, mu=gc.mu, attack=dict(gc.attack),
+                         defense=dict(gc.defense)) if gc is not None else None)
+    return pd.DataFrame(snaps), poss, goals, sot, shots, corners
 
 
-def save_elos(poss, goals, sot, path=None):
-    """Persist the fitted Elos so predict() loads them without replaying history."""
+def save_elos(poss, goals, sot, shots=None, corners=None, path=None):
+    """Persist the fitted ratings so predict() loads them without replaying history."""
     path = path or (config.MODEL_DIR / "elos.json")
-    path.write_text(json.dumps({
+    d = {
         "poss_ratings": poss.ratings, "poss_home": poss.home_adv,
         "attack": goals.attack, "defense": goals.defense,
         "goals_home": goals.home_adv, "mu": goals.mu,
         "sot_attack": sot.attack, "sot_defense": sot.defense,
         "sot_home": sot.home_adv, "sot_mu": sot.mu,
-    }), encoding="utf-8")
+    }
+    for name, r in (("shots", shots), ("corners", corners)):
+        if r is not None:
+            d[f"{name}_attack"], d[f"{name}_defense"] = r.attack, r.defense
+            d[f"{name}_home"], d[f"{name}_mu"] = r.home_adv, r.mu
+    path.write_text(json.dumps(d), encoding="utf-8")
     return path
 
 
 def load_elos(path=None):
+    """Returns (poss, goals, sot, shots, corners). shots/corners are None for older
+    elos.json that predate them (callers treat the script features as absent)."""
     path = path or (config.MODEL_DIR / "elos.json")
     d = json.loads(path.read_text(encoding="utf-8"))
     poss = PossessionElo(home_adv=d["poss_home"], ratings=dict(d["poss_ratings"]))
@@ -195,4 +352,10 @@ def load_elos(path=None):
                      attack=dict(d["attack"]), defense=dict(d["defense"]))
     sot = LinearElo(home_adv=d["sot_home"], mu=d["sot_mu"],
                     attack=dict(d["sot_attack"]), defense=dict(d["sot_defense"]))
-    return poss, goals, sot
+
+    def _lin(name):
+        if f"{name}_attack" not in d:
+            return None
+        return LinearElo(home_adv=d[f"{name}_home"], mu=d[f"{name}_mu"],
+                         attack=dict(d[f"{name}_attack"]), defense=dict(d[f"{name}_defense"]))
+    return poss, goals, sot, _lin("shots"), _lin("corners")

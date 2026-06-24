@@ -10,9 +10,8 @@ projected (normalized) minutes to price a counting line.
 from __future__ import annotations
 
 import config
+from features import RATE_STATS, SCRIPT_FIELDS as SCRIPT
 
-RATE_STATS = ["passes", "shots", "sot", "tackles", "saves", "goals", "assists", "ga"]
-SCRIPT = ["exp_team_share", "exp_team_g", "exp_opp_g", "exp_team_sot", "exp_opp_sot"]
 CAT_FEATURES = ["position", "source"]
 
 

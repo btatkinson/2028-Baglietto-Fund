@@ -89,10 +89,19 @@ def price_market(rate90, minutes_mean, minutes_sd, phi=1.0, line=None, half_spre
     return out
 
 
+_DISP_MU_FLOOR = 0.05            # Pearson ratio (y-mu)^2/mu is numerically unstable as
+                                # mu->0 (a single rare-event hit at mu~1e-4 blows the
+                                # mean to ~10); for rare heads (goals/ga) only rows with
+                                # a non-negligible expected count carry dispersion signal.
+_DISP_MU_CAP = 8.0
+
+
 def calibrate_dispersion(frame, save=True):
     """Per-stat Pearson dispersion phi = mean((y-mu)^2 / mu) using each fitted
     head's CONDITIONAL mean (so it's the residual over-dispersion, not the raw
-    mixed-population one). Counts reconstructed from per-90 x minutes. phi >= 1."""
+    mixed-population one). Counts reconstructed from per-90 x minutes. Only rows with
+    mu >= _DISP_MU_FLOOR contribute (near-zero mu gives unstable ratios — that's what
+    made ga read phi~9.7); clamped to [1, _DISP_MU_CAP]."""
     import rate_model
     minutes = frame["minutes"].to_numpy()
     out = {}
@@ -100,8 +109,9 @@ def calibrate_dispersion(frame, save=True):
         rate = rate_model.load(s).predict(frame[rate_model.features_for(s)]).clip(min=0)
         mu = rate * minutes / 90.0
         y = frame[f"{s}90"].to_numpy() * minutes / 90.0      # reconstruct raw count
-        ok = mu > 1e-6
-        out[s] = max(float((((y[ok] - mu[ok]) ** 2) / mu[ok]).mean()), 1.0)
+        ok = mu > _DISP_MU_FLOOR
+        phi = float((((y[ok] - mu[ok]) ** 2) / mu[ok]).mean()) if ok.sum() else 1.0
+        out[s] = min(max(phi, 1.0), _DISP_MU_CAP)
     if save:
         (config.MODEL_DIR / "dispersion.json").write_text(json.dumps(out, indent=2),
                                                           encoding="utf-8")
