@@ -68,7 +68,10 @@ STAT_MAP = {
     # through unmapped so they don't false-match a DFS stat.
 }
 
-_DROP_TOKENS = {"jr", "sr", "ii", "iii", "iv"}
+# generational suffixes stripped so 'Vinicius Jr.' and 'Vinícius Júnior' normalize alike
+# (bet365 abbreviates, API-Football/Kalshi spell it out). norm_name guards against emptying
+# a player who is known ONLY by such a token.
+_DROP_TOKENS = {"jr", "jnr", "junior", "sr", "snr", "senior", "ii", "iii", "iv"}
 
 
 def strip_accents(s: str) -> str:
@@ -102,8 +105,9 @@ def norm_name(raw: str | None) -> str:
     s = strip_accents(str(raw).lower())
     for ch in ".'\u2019-":
         s = s.replace(ch, " ")
-    toks = [t for t in s.split() if t not in _DROP_TOKENS]
-    return " ".join(toks)
+    toks = s.split()
+    kept = [t for t in toks if t not in _DROP_TOKENS]
+    return " ".join(kept or toks)            # never empty a mononym (a player named only 'Junior')
 
 
 def names_compatible(a: str, b: str) -> bool:

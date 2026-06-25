@@ -18,7 +18,7 @@ import config
 import rate_model
 import minutes_model
 import pricing
-from features import player_ewm, RATE_STATS
+from features import player_ewm, player_minutes_ewm, RATE_STATS
 from team_strength import load_elos
 
 
@@ -35,7 +35,10 @@ def _models():
     for s in RATE_STATS:
         e = pm.assign(_e=player_ewm(pm, stat=s)).dropna(subset=["_e"])
         last_ewm[s] = e.groupby("player")["_e"].last().to_dict()
-    return poss, goals, sot, shots, corners, heads, prior, last_ewm, disp
+    min_ewm, min_n = player_minutes_ewm(pm)        # per-player bench minutes signal
+    last_min_ewm = {p: (float(v), int(min_n.get(p, 0)))
+                    for p, v in min_ewm.items() if pd.notna(v)}
+    return poss, goals, sot, shots, corners, heads, prior, last_ewm, disp, last_min_ewm
 
 
 def _script(poss, goals, sot, shots, corners, team, opp, neutral=True,
@@ -63,7 +66,7 @@ def _script(poss, goals, sot, shots, corners, team, opp, neutral=True,
 
 
 def predict(player: str, position: str, context: dict) -> dict:
-    poss, goals, sot, shots, corners, heads, prior, last_ewm, _disp = _models()
+    poss, goals, sot, shots, corners, heads, prior, last_ewm, _disp, last_min_ewm = _models()
     team, opp, neutral = context["team"], context["opponent"], context.get("neutral", True)
     script = _script(poss, goals, sot, shots, corners, team, opp, neutral,
                      context.get("market_team_g"), context.get("market_opp_g"))
@@ -72,8 +75,10 @@ def predict(player: str, position: str, context: dict) -> dict:
         row[f"ewm_{s}90"] = last_ewm[s].get(player, float("nan"))
     rates = {s: rate_model.predict_rate(heads[s], row, stat=s) for s in RATE_STATS}
     starter = context.get("is_starter", True)
+    sub_ewm, ewm_n = last_min_ewm.get(player) or (None, 0)     # per-player bench signal
     pmean, psd, p_full = minutes_model.prior_minutes(
-        prior, position, starter, abs(script["exp_team_g"] - script["exp_opp_g"]))
+        prior, position, starter, abs(script["exp_team_g"] - script["exp_opp_g"]),
+        sub_min_ewm=sub_ewm, ewm_count=ewm_n)
     return {"p_start": 1.0 if starter else 0.0, "minutes_mean": pmean, "minutes_sd": psd,
             "p_full90": p_full, "rates90": rates, **script}
 
@@ -165,7 +170,7 @@ def price_lineup(team, opp, lineup, context=None, book_totals=None,
     Returns {player: dict} with roster-normalized minutes, expected count per stat
     in d['exp'], and the full pricing (mean/var/fair_line[/p_over/quote]) in
     d['price']."""
-    poss, goals, sot, shots, corners, heads, prior, last_ewm, disp = _models()
+    poss, goals, sot, shots, corners, heads, prior, last_ewm, disp, _min_ewm = _models()
     ctx = dict(context or {})
     ctx["team"], ctx["opponent"] = team, opp
     match_minutes = ctx.get("match_minutes", 90)
@@ -184,17 +189,30 @@ def price_lineup(team, opp, lineup, context=None, book_totals=None,
             d["minutes_mean"], d["minutes_sd"] = minutes_model.posterior_minutes(
                 d["minutes_mean"], d["minutes_sd"], book_min, ctx.get("book_sd", 12.0))
         rows[player] = d
-    bench = [p for p, d in rows.items() if d["p_start"] < 1]
-    if bench:                                   # not all listed subs appear (~5 of ~12)
-        appear = min(minutes_model.EXP_SUBS_USED / len(bench), 1.0)
-        for p in bench:
-            rows[p]["minutes_mean"] *= appear
-    gk_cap = match_minutes + 8                   # full match incl. stoppage (= roster cap)
-    for d in rows.values():                      # keepers: starter plays the full match, backups ~never
+    cap = match_minutes + 8                       # full match incl. stoppage (= roster cap)
+    for d in rows.values():                       # keepers: starter plays the full match, backups ~never
         if d.get("is_gk"):
-            d["minutes_mean"] = gk_cap if d["p_start"] >= 1 else 0.0
+            d["minutes_mean"] = cap if d["p_start"] >= 1 else 0.0
     raw = {p: d["minutes_mean"] for p, d in rows.items()}
-    norm = minutes_model.normalize_roster_minutes(raw, match_minutes=match_minutes)
+
+    # Minutes are normalized in TWO independent pools, not one. Total field-time is
+    # 11 slots x the full match incl. stoppage (= 11*cap). Of the 11 starters, about
+    # EXP_SUBS_USED get hooked; the bench collectively covers exactly the minutes those
+    # subs are on for — EXP_SUBS_USED x (mean minutes a sub plays once on). That bench
+    # budget is FIXED and decoupled from the starters: when the book reconciliation pulls
+    # a starter's minutes down, that field-time goes to the OTHER starters' coverage, not
+    # to inflating every sub. (A single shared normalization did the latter — a low
+    # starter sum scaled the whole bench up toward ~20', which is more than ~5 subs can
+    # physically play. Per-bench minutes are now P(sub on) x mean-time = budget/|bench|.)
+    starters = {p: v for p, v in raw.items() if rows[p]["p_start"] >= 1}
+    bench = {p: v for p, v in raw.items() if rows[p]["p_start"] < 1}
+    n_used = min(minutes_model.EXP_SUBS_USED, len(bench))      # short bench => fewer subs
+    bench_budget = min(n_used * prior["sub"]["mean"], 11 * cap)
+    norm = minutes_model.normalize_roster_minutes(
+        starters, team_total=11 * cap - bench_budget, cap=cap, match_minutes=match_minutes)
+    if bench:
+        norm.update(minutes_model.normalize_roster_minutes(
+            bench, team_total=bench_budget, cap=cap, match_minutes=match_minutes))
     # team-coherence: pin each anchored stat's team sum to the team rating/market total
     anchor_stats = [s for s in _ANCHOR_TARGETS if s in RATE_STATS] if anchor else []
     _anchor_rates(rows, norm, anchor_stats)

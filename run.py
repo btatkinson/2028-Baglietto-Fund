@@ -28,9 +28,11 @@ import sources
 from sources import parse_underdog, parse_prizepicks
 
 
-def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True):
+def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True,
+             trade: bool = False):
     """Run the full pipeline. Returns (report_path, summary_text).
-    Raises FileNotFoundError if the pasted DFS payloads are missing."""
+    Raises FileNotFoundError if the pasted DFS payloads are missing.
+    `trade=True` (run.py --trade) enables the live Kalshi order step with per-order approval."""
     lines = []
 
     def log(s):
@@ -110,12 +112,47 @@ def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True):
     path = rpt.write_report(df, meta, lus)
     log(f"Report -> {path}")
 
+    krows = None
     try:
         import scorers
-        sp, sc = scorers.write(b365, proj)
+        # LLM injury/news veto: gated on the master switch (WCP_NEWS_ENABLED) AND a key.
+        # Off by default — it spends Opus + web-search requests per act-on player.
+        annotate = None
+        if config.CLAUDE_API_KEY and config.NEWS_ENABLED:
+            import news
+            annotate = news.annotate
+        # Kalshi take/make highlight on the board (post-XI + key only); fetched once here and
+        # the rows returned so kalshi.html below reuses them — no second live call.
+        sp, sc, note, krows, games = scorers.write(b365, proj, annotate=annotate,
+                                                   kalshi=bool(config.KALSHI_KEY_ID))
         log(f"Scorer/assist board -> {sp}  (+ {sc.name})")
+        if note:
+            log(note)
     except Exception as e:
+        games = None
         log(f"Scorer board skipped: {e}")
+
+    # Kalshi overlay page, rendered from the same fetch the board used.
+    if krows is not None:
+        try:
+            import kalshi_overlay
+            kp = kalshi_overlay.write_html(krows)
+            n_take = sum(1 for r in krows if r["take_yes"] or r["take_no"])
+            log(f"Kalshi overlay -> {kp}  ({n_take} takeable of {len(krows)} overlaps)")
+        except Exception as e:
+            log(f"Kalshi overlay skipped: {e}")
+
+    # LIVE order placement — only with --trade, a key set, and confirmed XIs. Every order is
+    # shown and approved individually at the prompt; nothing is sent without a keystroke.
+    if trade and games is not None and config.KALSHI_KEY_ID:
+        try:
+            import kalshi_orders
+            orders = kalshi_orders.build_orders(games)
+            kalshi_orders.approve_and_place(orders)
+        except Exception as e:
+            log(f"Kalshi order step skipped: {e}")
+    elif trade and not config.KALSHI_KEY_ID:
+        log("--trade given but KALSHI_API key not set — no order step.")
 
     prev = df[df["best_edge"].fillna(-9).abs() >= min_edge].head(20)
     cols = [c for c in ["name", "stat", "pp_line", "ud_line", "b365_lines",
@@ -140,10 +177,21 @@ def main(argv=None):
                          "(default). Use --no-refresh for fully offline iteration.")
     ap.add_argument("--min-edge", type=float, default=0.0, help="console preview filter on |edge|")
     ap.add_argument("--open", action="store_true", help="open the report in a browser when done")
+    ap.add_argument("--trade", action="store_true",
+                    help="LIVE: build Kalshi orders from the confirmed-XI board and approve "
+                         "each one at a y/N prompt before it is sent. Needs KALSHI_API set.")
+    ap.add_argument("--bankroll", type=float, help="override WCP_KALSHI_BANKROLL for this run")
+    ap.add_argument("--max-risk", type=float, help="override WCP_KALSHI_MAX_RISK ($/market)")
     args = ap.parse_args(argv)
 
+    if args.bankroll is not None:
+        config.KALSHI_BANKROLL = args.bankroll
+    if args.max_risk is not None:
+        config.KALSHI_MAX_RISK = args.max_risk
+
     try:
-        path, _ = pipeline(scrape=args.scrape, min_edge=args.min_edge, refresh=args.refresh)
+        path, _ = pipeline(scrape=args.scrape, min_edge=args.min_edge, refresh=args.refresh,
+                           trade=args.trade)
     except FileNotFoundError as e:
         sys.exit(str(e))
 

@@ -18,6 +18,32 @@ OUT_DIR = Path(os.environ.get("WCP_OUT_DIR", ROOT / "out"))
 BETSAPI_TOKEN = os.environ.get("BETSAPI_TOKEN")        # bet365 stat props (required for edge)
 ODDSPAPI_KEY = os.environ.get("ODDSPAPI_KEY")          # optional: goalscorer + Pinnacle
 
+# Claude (Anthropic) API — powers the LLM injury/news check on the scorers board
+# (news.py). The numbers pipeline is blind to real-world news (a warmup knock, an
+# illness, a late suspension, a "manager hints at rotation"); this is the one signal
+# that catches a player we'd otherwise confidently quote a price on and get picked off.
+# Used ONLY as a veto/flag — it can warn or suppress a quote, never numerically move a
+# price (LLM probabilities aren't calibrated). Scoped tight to post-XI act-on players to
+# keep cost + false positives down; no key set ⇒ the check is skipped silently.
+CLAUDE_API_KEY = os.environ.get("CLAUDE_API")
+CLAUDE_MODEL = os.environ.get("WCP_CLAUDE_MODEL", "claude-opus-4-8")
+# Master switch for the news check — OFF by default (it spends real Opus + web-search
+# requests per act-on player and can burn through quota fast). Flip WCP_NEWS_ENABLED=1
+# to turn it back on; the key can stay in .env meanwhile.
+NEWS_ENABLED = os.environ.get("WCP_NEWS_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
+NEWS_TOP_PER_SIDE = int(os.environ.get("WCP_NEWS_TOP_PER_SIDE", "6"))  # checked per team, by hazard
+NEWS_MAX_PLAYERS = int(os.environ.get("WCP_NEWS_MAX_PLAYERS", "24"))   # hard slate cap (cost)
+NEWS_MAX_WORKERS = int(os.environ.get("WCP_NEWS_MAX_WORKERS", "4"))    # parallel API calls
+NEWS_CACHE_TTL = int(os.environ.get("WCP_NEWS_CACHE_TTL", "1800"))     # reuse a verdict for 30 min
+
+# Kalshi — READ-ONLY market data + order-book overlay for the post-XI maker board.
+# KALSHI_API is the API key id (UUID); KALSHI_RSA is the RSA private key (the base64 DER
+# body, or a full PEM) used to sign each request (see kalshi.py). Base URL is overridable
+# (prod vs demo). We only ever GET here — no order placement.
+KALSHI_KEY_ID = os.environ.get("KALSHI_API")
+KALSHI_PRIVATE_KEY = os.environ.get("KALSHI_RSA")
+KALSHI_BASE = os.environ.get("WCP_KALSHI_BASE", "https://api.elections.kalshi.com")
+
 # Capture window / scope
 SOCCER_SPORT_ID = 1                                    # BetsAPI soccer
 # Capture horizon. Default 168h (7 days): WC group games cluster every 3-4 days,
@@ -63,6 +89,38 @@ BLEND_W_UD = float(os.environ.get("WCP_BLEND_W_UD", "0.5"))
 #   p_fair = (1/odds) / (1 + ONEWAY_MARGIN)
 # Bigger = more conservative ("terrible vig" haircut on one-sided lines).
 ONEWAY_MARGIN = float(os.environ.get("WCP_ONEWAY_MARGIN", "0.20"))
+
+# Kalshi maker pricing for the post-XI scorers board. The "acceptable" YES/NO price is
+#   fair_prob*100 - 100*HALF_SPREAD - fee(p)   (in cents, per side)
+# i.e. the most we'd PAY for that side and still keep our edge after Kalshi's fee. Quote
+# a side only if the book offers it that cheap. HALF_SPREAD is your required edge each
+# side (making, not taking) — kept tight (1c) because the fair is an average of sharp,
+# independent books. FEE_RATE is Kalshi's trading-fee rate; the per-contract fee is
+# rate*p*(1-p) of $1, rounded up to the cent. Default 0.07 is conservative (the taker
+# schedule) — set WCP_KALSHI_FEE_RATE to your real maker rate (lower, maybe 0) to tighten.
+KALSHI_MAKER_HALF_SPREAD = float(os.environ.get("WCP_KALSHI_HALF_SPREAD", "0.01"))
+KALSHI_FEE_RATE = float(os.environ.get("WCP_KALSHI_FEE_RATE", "0.07"))
+# Don't post a maker quote on noise: skip a market whose fair YES prob is below this (a
+# 2'-cameo defender at ~0% shouldn't be quoted). The high-prob (NO) side of a near-cert
+# is still suppressed automatically when its acceptable price floors below 1c.
+KALSHI_MIN_QUOTE_PROB = float(os.environ.get("WCP_KALSHI_MIN_QUOTE_PROB", "0.03"))
+
+# Live order sizing (kalshi_orders, only reached via `run.py --trade` + per-order approval).
+# Fractional-Kelly: capital-at-risk on a side = KELLY_FRACTION * f* * BANKROLL, where the
+# full-Kelly fraction f* = edge/(1-price) and edge = our_fair_prob - price_paid. This sizes
+# by how mispriced the live market is; the per-market MAX_RISK cap is the hard backstop
+# (it binds most on favourites, whose small (1-price) inflates f*). Payout = contracts*$1 =
+# risk/price, so longshots pay more and favourites less for the same risk — as intended.
+KALSHI_BANKROLL = float(os.environ.get("WCP_KALSHI_BANKROLL", "5000"))
+KALSHI_KELLY_FRACTION = float(os.environ.get("WCP_KALSHI_KELLY", "0.5"))
+KALSHI_MAX_RISK = float(os.environ.get("WCP_KALSHI_MAX_RISK", "250"))     # cap $ at risk / market
+# Per-PLAYER cap = this multiple of MAX_RISK, summed across that player's correlated G/A/G+A
+# markets (both sides). 1.4 lets a name's best market run near the per-market cap while
+# stopping all three from each loading to full (which would over-concentrate one player).
+KALSHI_PLAYER_RISK_MULT = float(os.environ.get("WCP_KALSHI_PLAYER_MULT", "1.4"))
+# Optional contract-count cap (≈ max payout / liquidity guard); blank = no cap (only MAX_RISK).
+_mc = os.environ.get("WCP_KALSHI_MAX_CONTRACTS", "").strip()
+KALSHI_MAX_CONTRACTS = int(_mc) if _mc else None
 
 # DFS paste files + the public endpoints they come from (sources.refresh_dfs pulls
 # these in place). UD's beta endpoint is unauthenticated; PP needs a browser UA

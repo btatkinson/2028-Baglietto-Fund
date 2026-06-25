@@ -67,7 +67,7 @@ def _print_team(team, opp, lineup, asof, mkt_team_g, mkt_opp_g, ewm):
 
 def _ewm_table():
     """{player: {stat: last leak-free ewm per-90}} for the form check."""
-    poss, goals, sot, shots, corners, heads, prior, last_ewm, disp = predict._models()
+    *_, last_ewm, disp, _min_ewm = predict._models()
     out = {}
     for s in RATE_STATS:
         for player, v in last_ewm[s].items():

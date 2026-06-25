@@ -76,8 +76,20 @@ def load_prior():
     return json.loads((config.MODEL_DIR / "minutes_prior.json").read_text(encoding="utf-8"))
 
 
-def prior_minutes(prior, position, is_starter, abs_margin=0.0):
-    """(mean, sd, p_full) for one player from the start-conditional prior."""
+SUB_EWM_PSEUDO = 2.0    # pseudo-matches of the global sub level mixed into each EWM
+
+
+def prior_minutes(prior, position, is_starter, abs_margin=0.0,
+                  sub_min_ewm=None, ewm_count=0):
+    """(mean, sd, p_full) for one player from the start-conditional prior.
+
+    For a SUB, `sub_min_ewm` (the player's raw-minutes EWM, incl. DNP rows — see
+    features.player_minutes_ewm) replaces the flat global sub mean so two bench players
+    differ by how much each actually plays. It's shrunk toward the global sub level by
+    SUB_EWM_PSEUDO pseudo-matches so a player with one fluky cap can't dominate; a
+    well-observed player keeps essentially his own EWM. Only the RELATIVE value matters
+    downstream — price_lineup normalizes the bench to a fixed sub budget — so the global
+    sub mean is a fine shrink target / fallback. Falls back to it when no EWM is given."""
     mm = prior["match_minutes"]
     if is_starter:
         base = (prior["starter_by_pos"].get(str(position))
@@ -85,7 +97,11 @@ def prior_minutes(prior, position, is_starter, abs_margin=0.0):
         mean = base["mean"] + prior["margin_slope"] * (abs_margin - prior["margin_ref"])
         return min(max(mean, 0.0), mm), base["sd"], base["p_full"]
     s = prior["sub"]
-    return s["mean"], s["sd"], 0.0
+    if sub_min_ewm is None:
+        return s["mean"], s["sd"], 0.0
+    k = SUB_EWM_PSEUDO
+    mean = (ewm_count * float(sub_min_ewm) + k * s["mean"]) / (ewm_count + k)
+    return min(max(mean, 0.0), mm), s["sd"], 0.0
 
 
 def normalize_roster_minutes(means, team_total=None, cap=None, match_minutes=90):

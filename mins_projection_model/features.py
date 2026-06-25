@@ -30,6 +30,20 @@ def player_ewm(player_matches: pd.DataFrame, stat="passes",
                  .reset_index(level=0, drop=True))
 
 
+def player_minutes_ewm(player_matches: pd.DataFrame, by="player", date_col="date",
+                       halflife=None):
+    """Latest EWM of RAW minutes per player — the per-player bench signal. The history
+    keeps 0' DNP / unused-sub rows, so this already reflects P(play) x minutes (a deep
+    reserve sits near 0, a rotated regular near 90), which is what tells two bench
+    players apart. No shift(1): the match being projected is never in `player_matches`,
+    so including all observed history is correct at inference (no leak). Returns
+    (Series of last EWM minutes, Series of match counts), both indexed by player."""
+    hl = halflife or config.EWM_HALFLIFE
+    pm = player_matches.sort_values([by, date_col])
+    ewm = pm.groupby(by)["minutes"].apply(lambda s: s.ewm(halflife=hl).mean())
+    return ewm.groupby(level=0).last(), pm.groupby(by).size()
+
+
 RATE_STATS = ["passes", "shots", "sot", "tackles", "saves", "goals", "assists", "ga"]
 
 # Team game-script columns attached to every player-match (this team's value, then
