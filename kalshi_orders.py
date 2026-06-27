@@ -68,7 +68,7 @@ def build_orders(games):
         if exp is not None and exp - now < _EXP_BUFFER:  # game basically started - skip
             continue
         for s in gm.get("sides", []):
-            for r in s.get("book", []):
+            for r in s.get("book", []) + s.get("model", []):     # model-est rows quote too
                 if r.get("news_suppress"):
                     continue
                 kx = r.get("kalshi") or {}
@@ -90,6 +90,7 @@ def build_orders(games):
                         if not sized:
                             continue
                         count, risk, payout = sized
+                        haz = r.get("g_haz") if mkt == "G" else (r.get("a_haz") if mkt == "A" else None)
                         orders.append({
                             "ticker": ov["ticker"], "side": side, "action": "buy",
                             "price_c": int(price_c), "count": count, "expiration_ts": exp,
@@ -97,7 +98,11 @@ def build_orders(games):
                             "match": gm["match"], "player": r["player"], "market": mkt,
                             "kickoff": ko, "mode": "TAKE" if take else "make",
                             "fair": prob, "edge_c": round((prob - price_c / 100.0) * 100, 1),
-                            "risk": risk, "payout": payout})
+                            "risk": risk, "payout": payout,
+                            # context carried through for the trade ledger (trades.log_fill)
+                            "source": r.get("source"), "minutes": r.get("minutes"), "hazard": haz,
+                            "q_yes": q, "k_yes_bid": ov.get("k_yes_bid"), "k_yes_ask": ov.get("k_yes_ask"),
+                            "k_no_bid": ov.get("k_no_bid"), "k_no_ask": ov.get("k_no_ask")})
     # best price FIRST: biggest edge wins so the juiciest opportunities get the cap budget
     # before any thin make; a TAKE (certain fill) breaks ties over a make (speculative rest).
     orders.sort(key=lambda o: (-o["edge_c"], o["mode"] != "TAKE"))
@@ -259,10 +264,19 @@ def approve_and_place(orders):
             continue
         try:
             resp = kalshi.create_order(**_payload(o))
-            oid = (resp.get("order") or {}).get("order_id")
+            oid = resp.get("order_id") or (resp.get("order") or {}).get("order_id")  # v2 top-level
             o["order_id"] = oid
             placed.append(o)
             print(f"   PLACED  order_id={oid}")
+            import trades                                  # record the take for result-matching
+            trades.log_fill(
+                ticker=o["ticker"], match=o["match"], player=o["player"], market=o["market"],
+                side=o["side"], price_c=o["price_c"], count=o["count"], order_id=oid,
+                client_order_id=o["client_order_id"], mode=o["mode"], source=o.get("source"),
+                fair=o.get("fair"), q_yes=o.get("q_yes"), minutes=o.get("minutes"),
+                hazard=o.get("hazard"), kickoff=o.get("kickoff"),
+                post_only=(o["mode"] != "TAKE"), k_yes_bid=o.get("k_yes_bid"),
+                k_yes_ask=o.get("k_yes_ask"), k_no_bid=o.get("k_no_bid"), k_no_ask=o.get("k_no_ask"))
         except Exception as e:
             print(f"   ERROR - not placed: {e}")
     print(f"\nPlaced {len(placed)} of {len(placeable)} "

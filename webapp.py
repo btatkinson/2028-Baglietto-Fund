@@ -31,7 +31,7 @@ import traceback
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Flask, Response, redirect, request
+from flask import Flask, Response, jsonify, redirect, request
 
 import config
 from run import pipeline
@@ -40,6 +40,13 @@ app = Flask(__name__)
 
 APP_USER = os.environ.get("APP_USER", "blake")
 APP_PASSWORD = os.environ.get("APP_PASSWORD")
+
+
+def _is_local() -> bool:
+    """True only for a loopback caller. Live Kalshi order placement is gated on this so the
+    hosted/Railway instance stays read-only (view + refresh + minutes edits) even though it
+    sits behind the same basic auth."""
+    return request.remote_addr in ("127.0.0.1", "::1", "localhost")
 
 
 # ----------------------------- auth -----------------------------
@@ -96,7 +103,12 @@ def _run_job(scrape: bool, refresh: bool):
         JOB["error"] = str(e)
         JOB["log"] += "\n" + traceback.format_exc(limit=6)
     finally:
-        _LAST_FINISH = time.time()
+        # Only a LIVE refresh (an upstream UD/PP/bet365 pull) counts toward the refresh
+        # throttle. A manual paste/upload run (refresh=False) hits no upstream feed, so it
+        # must NOT block the next one-click Refresh — otherwise every manual upload disables
+        # the big button for REFRESH_MIN_INTERVAL and it looks broken.
+        if refresh:
+            _LAST_FINISH = time.time()
         JOB["finished"] = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
 
 
@@ -122,7 +134,9 @@ def _refresh_wait() -> int:
 
 
 # ----------------------------- pages -----------------------------
-_NAV = ("<div style=\"position:fixed;right:14px;bottom:14px;z-index:99\">"
+_NAV = ("<div style=\"position:fixed;right:14px;bottom:14px;z-index:99;display:flex;gap:8px\">"
+        "<a href='/scorers' style='background:#1c8b4f;color:#fff;text-decoration:none;"
+        "padding:9px 14px;border-radius:999px;font:13px sans-serif'>⚽ scorers board</a>"
         "<a href='/control' style='background:#1f6feb;color:#fff;text-decoration:none;"
         "padding:9px 14px;border-radius:999px;font:13px sans-serif'>⟳ control panel</a></div>")
 
@@ -315,6 +329,100 @@ poll();
 @requires_auth
 def status_json():
     return {k: JOB[k] for k in ("status", "log", "error", "started", "finished")}
+
+
+# ----------------------------- interactive scorers board -----------------------------
+# The board re-prices in-process from the last pipeline's cached (b365, proj): editing a Min
+# cell POSTs a minutes override and gets the re-priced board back; clicking a lit Y/N price
+# opens a Kalshi order ticket. Placement (/board/ticket, /kalshi/place) is LOCAL-ONLY.
+
+@app.get("/scorers")
+@requires_auth
+def scorers_page():
+    import board
+    page = board.render(interactive=True)
+    if not page:
+        body = ("<h1>No board yet</h1><p class='hint'>Run the pipeline once "
+                "(<a href='/control'>control panel → Refresh &amp; run</a>) to populate the board, "
+                "then come back.</p>")
+        return _PAGE.format(title="scorers", body=body)
+    return page.replace("</body>", _NAV + "</body>")
+
+
+@app.post("/board/minutes")
+@requires_auth
+def board_minutes():
+    import board
+    d = request.get_json(silent=True) or {}
+    match, player = d.get("match"), d.get("player")
+    if not match or not player:
+        return Response("missing match/player", 400)
+    mins = d.get("minutes")
+    try:
+        mins = None if mins in (None, "") else float(mins)
+    except (TypeError, ValueError):
+        return Response("minutes must be a number or null", 400)
+    try:
+        return board.apply_minutes(match, player, mins)
+    except Exception as e:
+        return Response(f"rebuild failed: {e}", 500)
+
+
+@app.post("/board/kalshi-refresh")
+@requires_auth
+def board_kalshi_refresh():
+    import board
+    try:
+        return board.render_fragment(refresh_kalshi=True)
+    except Exception as e:
+        return Response(f"refresh failed: {e}", 500)
+
+
+@app.post("/board/clear-xi")
+@requires_auth
+def board_clear_xi():
+    import board
+    d = request.get_json(silent=True) or {}
+    match = d.get("match")
+    if not match:
+        return Response("missing match", 400)
+    try:
+        return board.clear_manual_xi(match)
+    except Exception as e:
+        return Response(f"clear failed: {e}", 500)
+
+
+@app.get("/board/ticket")
+@requires_auth
+def board_ticket():
+    if not _is_local():
+        return jsonify(error="order tickets are local-only"), 403
+    import board
+    try:
+        t = board.ticket(request.args.get("match"), request.args.get("player"),
+                          request.args.get("market"), request.args.get("side"))
+        return jsonify(t)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        return jsonify(error=f"ticket failed: {e}"), 500
+
+
+@app.post("/kalshi/place")
+@requires_auth
+def kalshi_place():
+    if not _is_local():
+        return jsonify(error="order placement is local-only"), 403
+    import board
+    d = request.get_json(silent=True) or {}
+    try:
+        res = board.place(d.get("ticker"), d.get("side"), d.get("price_c"),
+                          d.get("count"), d.get("expiration_ts"), d.get("post_only"))
+        return jsonify(res)
+    except ValueError as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        return jsonify(error=f"place failed: {e}"), 502
 
 
 if __name__ == "__main__":

@@ -29,6 +29,24 @@ _GOAL_STATS = ("Goals", "Assists", "Goals + assists")
 SOFT_FLOOR = 0.15      # each player keeps >= this fraction of its raw hazard (no zeros)
 
 
+def two_way_prob(over_mult, under_mult, oneway_overround=None):
+    """De-vigged P(over) from Underdog payout multipliers. A multiplier m is a PROFIT multiple
+    (a winning pick returns stake×(1+m), so a multiplier <1 is a favourite), hence a side's
+    vigged implied probability is 1/(1+m) — NOT 1/m. With BOTH sides posted we divide by the
+    overround (io+iu) to strip the built-in margin. With only the over posted there's no
+    opposing price to measure the margin: if the caller passes an assumed `oneway_overround`
+    we de-vig by it (e.g. 1.5× a balanced book's vig), else a one-sided line returns None."""
+    io = 1.0 / (1.0 + over_mult) if over_mult and over_mult > 0 else None
+    if io is None:
+        return None
+    iu = 1.0 / (1.0 + under_mult) if under_mult and under_mult > 0 else None
+    if iu is not None:
+        return io / (io + iu)
+    if oneway_overround and oneway_overround > 0:
+        return min(io / oneway_overround, 0.999)
+    return None
+
+
 def _solve(raw, target):
     """raw: {key: book P(>=1)}. SOFT-FLOOR additive-hazard de-vig: in lambda-space
     subtract a constant delta from each lambda so the hazards sum to the team's

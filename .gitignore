@@ -15,3 +15,6 @@ mins_projection_model/catboost_info/
 
 # generated report
 out/report.html
+
+# interactive-board cache (last pipeline's b365+proj+book; regenerated every run)
+out/board_state.pkl

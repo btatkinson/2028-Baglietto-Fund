@@ -87,6 +87,34 @@ def _find(players: dict, nn: str):
     return cand[0] if len(cand) == 1 else None
 
 
+def verdict(match, player, market, acc_yes, acc_no, kp) -> dict | None:
+    """One overlay row from our acceptable YES/NO prices + a Kalshi player-market book dict
+    `kp` (keys yes_bid/yes_ask/no_bid/no_ask/last/oi/ticker). Returns the row, or None if we
+    quote neither side. Shared by build() (live fetch) and board.py (recompute vs cached book
+    after a minutes edit), so the take/make logic lives in exactly one place."""
+    if acc_yes is None and acc_no is None:
+        return None
+    yb, ya, nb, na = kp.get("yes_bid"), kp.get("yes_ask"), kp.get("no_bid"), kp.get("no_ask")
+    # TAKE: Kalshi already offers the side at/below our acceptable price -> cross it.
+    take_yes = acc_yes is not None and ya is not None and ya <= acc_yes
+    take_no = acc_no is not None and na is not None and na <= acc_no
+    # MAKE: not a take, but resting a bid at our acceptable price would IMPROVE the book
+    # (above the current best bid) while staying below the ask — post & wait.
+    make_yes = (not take_yes and acc_yes is not None
+                and (yb is None or acc_yes > yb) and (ya is None or acc_yes < ya))
+    make_no = (not take_no and acc_no is not None
+               and (nb is None or acc_no > nb) and (na is None or acc_no < na))
+    return {
+        "match": match, "player": player, "market": market,
+        "acc_yes": acc_yes, "acc_no": acc_no,
+        "k_yes_bid": yb, "k_yes_ask": ya, "k_no_bid": nb, "k_no_ask": na,
+        "k_last": kp.get("last"), "k_oi": kp.get("oi") or 0, "ticker": kp.get("ticker"),
+        "take_yes": take_yes, "take_no": take_no,
+        "make_yes": make_yes, "make_no": make_no,
+        "edge_yes": (acc_yes - ya) if take_yes else None,
+        "edge_no": (acc_no - na) if take_no else None}
+
+
 def build(scorers_csv=None) -> list[dict]:
     """Join our acceptable prices to live Kalshi and flag takes. One row per
     (player, market) where both sides exist."""
@@ -113,25 +141,9 @@ def build(scorers_csv=None) -> list[dict]:
                 continue                          # Kalshi doesn't list this player here
             acc_yes = None if pd.isna(acc_yes) else int(acc_yes)
             acc_no = None if pd.isna(acc_no) else int(acc_no)
-            yb, ya, nb, na = kp["yes_bid"], kp["yes_ask"], kp["no_bid"], kp["no_ask"]
-            # TAKE: Kalshi already offers the side at/below our acceptable price -> cross it.
-            take_yes = acc_yes is not None and ya is not None and ya <= acc_yes
-            take_no = acc_no is not None and na is not None and na <= acc_no
-            # MAKE: not a take, but resting a bid at our acceptable price would IMPROVE the
-            # book (above the current best bid) while staying below the ask — post & wait.
-            make_yes = (not take_yes and acc_yes is not None
-                        and (yb is None or acc_yes > yb) and (ya is None or acc_yes < ya))
-            make_no = (not take_no and acc_no is not None
-                       and (nb is None or acc_no > nb) and (na is None or acc_no < na))
-            rows.append({
-                "match": r.match, "player": r.player, "market": label,
-                "acc_yes": acc_yes, "acc_no": acc_no,
-                "k_yes_bid": yb, "k_yes_ask": ya, "k_no_bid": nb, "k_no_ask": na,
-                "k_last": kp["last"], "k_oi": kp["oi"], "ticker": kp["ticker"],
-                "take_yes": take_yes, "take_no": take_no,
-                "make_yes": make_yes, "make_no": make_no,
-                "edge_yes": (acc_yes - ya) if take_yes else None,
-                "edge_no": (acc_no - na) if take_no else None})
+            row = verdict(r.match, r.player, label, acc_yes, acc_no, kp)
+            if row:
+                rows.append(row)
     return rows
 
 

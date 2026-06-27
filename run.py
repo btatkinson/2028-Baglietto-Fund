@@ -124,10 +124,17 @@ def pipeline(scrape: bool = True, min_edge: float = 0.0, refresh: bool = True,
         # Kalshi take/make highlight on the board (post-XI + key only); fetched once here and
         # the rows returned so kalshi.html below reuses them — no second live call.
         sp, sc, note, krows, games = scorers.write(b365, proj, annotate=annotate,
-                                                   kalshi=bool(config.KALSHI_KEY_ID))
+                                                   kalshi=bool(config.KALSHI_KEY_ID), ud=ud)
         log(f"Scorer/assist board -> {sp}  (+ {sc.name})")
         if note:
             log(note)
+        # cache the inputs so webapp's interactive /scorers can re-price minutes + serve
+        # order tickets without re-running the model (board.py reads this pickle).
+        try:
+            import board
+            board.save_state(b365, proj, krows, ud=ud)
+        except Exception as e:
+            log(f"Board state cache skipped: {e}")
     except Exception as e:
         games = None
         log(f"Scorer board skipped: {e}")

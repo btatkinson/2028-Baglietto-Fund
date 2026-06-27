@@ -156,23 +156,49 @@ def series_list(**params) -> dict:
 # only after explicit per-order human approval (run.py --trade). Same RSA signing as GETs.
 
 def create_order(ticker, action, side, count, type="limit", yes_price=None, no_price=None,
-                 expiration_ts=None, client_order_id=None) -> dict:
-    """Place an order. side 'yes'|'no'; action 'buy'|'sell'; price in CENTS on the named
-    side (yes_price for a yes order, no_price for a no order). expiration_ts (unix seconds)
-    makes it good-till-date — we set it to kickoff so resting orders die at the whistle.
-    client_order_id is an idempotency key (Kalshi dedupes repeats), so a re-run won't
-    double-place the same intended order."""
-    body = {"ticker": ticker, "action": action, "side": side,
-            "count": int(count), "type": type}
+                 expiration_ts=None, client_order_id=None, post_only=False) -> dict:
+    """Place a limit BUY on the v2 order endpoint (POST /portfolio/events/orders). The legacy
+    /portfolio/orders path (side yes/no + yes_price/no_price in cents) was retired in 2026, so
+    this translates our yes/no + cents interface to the v2 YES-leg model:
+
+      * v2 expresses every order on the YES leg as bid (buy YES) / ask (sell YES). Selling YES
+        is economically buying NO at (1 - price), so:
+            buy YES @ p¢  ->  side 'bid', price = p/100 dollars
+            buy NO  @ p¢  ->  side 'ask', price = (100 - p)/100 dollars   (sell YES at the complement)
+      * price is a fixed-point DOLLAR string; count is a contract string; there is no `type`
+        field (time_in_force defines it). We rest good-till-cancel with expiration_time = kickoff.
+
+    The signature is kept (action/type/yes_price/no_price) so callers don't change. action must
+    be 'buy' — this module never sells. client_order_id stays the idempotency key."""
+    if action != "buy":
+        raise RuntimeError(f"create_order: only 'buy' supported, got {action!r}")
+    if side == "yes":
+        if yes_price is None:
+            raise RuntimeError("create_order: yes side needs yes_price")
+        v2_side, price_c = "bid", int(yes_price)                # buy YES at its price
+    elif side == "no":
+        if no_price is None:
+            raise RuntimeError("create_order: no side needs no_price")
+        v2_side, price_c = "ask", 100 - int(no_price)           # buy NO == sell YES at the complement
+    else:
+        raise RuntimeError(f"create_order: side must be yes/no, got {side!r}")
+    if not (1 <= price_c <= 99):
+        raise RuntimeError(f"create_order: YES-leg price {price_c}c out of range")
+    body = {
+        "ticker": ticker,
+        "side": v2_side,
+        "count": str(int(count)),
+        "price": f"{price_c / 100:.4f}",                        # dollars, YES leg
+        "time_in_force": "good_till_canceled",
+        "self_trade_prevention_type": "taker_at_cross",
+    }
+    if post_only:                       # reject (don't take) if it would cross — guarantees maker
+        body["post_only"] = True
     if client_order_id:
         body["client_order_id"] = client_order_id
-    if yes_price is not None:
-        body["yes_price"] = int(yes_price)
-    if no_price is not None:
-        body["no_price"] = int(no_price)
     if expiration_ts:
-        body["expiration_ts"] = int(expiration_ts)
-    return _post("/portfolio/orders", body)
+        body["expiration_time"] = int(expiration_ts)            # was expiration_ts in the legacy API
+    return _post("/portfolio/events/orders", body)
 
 
 def cancel_order(order_id: str) -> dict:

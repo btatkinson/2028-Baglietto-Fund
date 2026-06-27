@@ -159,7 +159,7 @@ def prob_over_at(ladder, dfs_line: float):
     return n_p, f"extrap[{n_m}]"
 
 
-def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=None):
+def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=None, over_adj=0.0):
     """Return edge info for a DFS line given a bet365 ladder.
 
     breakeven: the platform/structure per-leg breakeven (config.BREAKEVEN_UD /
@@ -168,13 +168,17 @@ def evaluate(ladder, dfs_line: float, over_mult=1.0, under_mult=1.0, breakeven=N
     multiplicatively into the entry payout, so the required probability is
     breakeven/mult, plus config.EDGE_CUSHION as insurance against the bet365
     de-vig model being wrong.
+
+    over_adj: an additive correction to P(over) (e.g. a per-stat de-bias such as
+    config.STAT_OVER_ADJ for shots, which run hot). Negative shaves the over down,
+    shifting edge toward the under to rebalance a systematically over-leaning stat.
     """
     if breakeven is None:
         breakeven = 0.5
     p_over, method = prob_over_at(ladder, dfs_line)
     if p_over is None:
         return None
-    p_over = min(max(p_over, 0.0), 1.0)
+    p_over = min(max(p_over + over_adj, 0.0), 1.0)
     # tiered cushion: soft tier for neutrality-calibrated or extrapolated probs
     cushion = (config.EDGE_CUSHION_SOFT
                if ("neut" in method or "extrap" in method)

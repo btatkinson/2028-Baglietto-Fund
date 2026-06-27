@@ -72,6 +72,11 @@ BREAKEVEN_PP = float(os.environ.get("WCP_BREAKEVEN_PP", _BE_BOTH or "0.543"))
 EDGE_CUSHION = float(os.environ.get("WCP_EDGE_CUSHION", "0.03"))
 EDGE_CUSHION_SOFT = float(os.environ.get("WCP_EDGE_CUSHION_SOFT", "0.05"))
 
+# Per-stat P(over) correction in the report edges. The bet365-informed shots ladder runs hot —
+# we land on the OVER far too often — so shave P(over Shots) down a touch to rebalance the
+# over/under split (negative = bring overs down). Applied in edge.evaluate via match.join.
+STAT_OVER_ADJ = {"Shots": float(os.environ.get("WCP_SHOTS_OVER_ADJ", "-0.04"))}
+
 # Lineup generation (structures defined in lineups.STRUCTURES)
 UD_STRUCTURE = os.environ.get("WCP_UD_STRUCTURE", "ud_power3")
 PP_STRUCTURE = os.environ.get("WCP_PP_STRUCTURE", "pp_flex5")
@@ -90,16 +95,25 @@ BLEND_W_UD = float(os.environ.get("WCP_BLEND_W_UD", "0.5"))
 # Bigger = more conservative ("terrible vig" haircut on one-sided lines).
 ONEWAY_MARGIN = float(os.environ.get("WCP_ONEWAY_MARGIN", "0.20"))
 
-# Kalshi maker pricing for the post-XI scorers board. The "acceptable" YES/NO price is
-#   fair_prob*100 - 100*HALF_SPREAD - fee(p)   (in cents, per side)
-# i.e. the most we'd PAY for that side and still keep our edge after Kalshi's fee. Quote
-# a side only if the book offers it that cheap. HALF_SPREAD is your required edge each
-# side (making, not taking) — kept tight (1c) because the fair is an average of sharp,
-# independent books. FEE_RATE is Kalshi's trading-fee rate; the per-contract fee is
-# rate*p*(1-p) of $1, rounded up to the cent. Default 0.07 is conservative (the taker
-# schedule) — set WCP_KALSHI_FEE_RATE to your real maker rate (lower, maybe 0) to tighten.
-KALSHI_MAKER_HALF_SPREAD = float(os.environ.get("WCP_KALSHI_HALF_SPREAD", "0.01"))
+# Kalshi take/make pricing for the post-XI board. Required EDGE below the de-vigged fair,
+# before fees (in probability):
+#   acceptable TAKE price  = fair*100 - 100*CUSHION                  - taker_fee(p)   (¢/side)
+#   acceptable MAKE ceiling = fair*100 - 100*(CUSHION + LIQ_PREMIUM) - maker_fee(p)   (¢/side)
+# We cross the live book (taker) iff it offers a side at/below the TAKE price; otherwise we
+# rest (maker) at penny-the-bid, capped by the MAKE ceiling. CUSHION is the base edge each
+# side — NOTE the prior default was a 1% "half-spread", so 3% is materially tighter (fewer
+# fills, more edge each); dial WCP_KALSHI_CUSHION to taste. LIQ_PREMIUM is the EXTRA edge
+# demanded to REST (improve the book), compensating fill risk + adverse selection.
+KALSHI_EDGE_CUSHION = float(os.environ.get("WCP_KALSHI_CUSHION", "0.01"))
+KALSHI_LIQUIDITY_PREMIUM = float(os.environ.get("WCP_KALSHI_LIQ_PREMIUM", "0.01"))
+# FEE_RATE is Kalshi's taker fee rate; the per-contract fee is rate*p*(1-p) of $1, rounded up
+# to the cent. 0.07 is the taker schedule.
 KALSHI_FEE_RATE = float(os.environ.get("WCP_KALSHI_FEE_RATE", "0.07"))
+# Kalshi's maker fee is currently 25% of the taker fee (and rounds to ~$0 on small size), so a
+# RESTING order priced off this is the right ceiling — using the taker rate under-bids makes.
+# Used only for the 'make' side of the order ticket; the take side keeps the full taker rate.
+KALSHI_MAKER_FEE_RATE = float(os.environ.get("WCP_KALSHI_MAKER_FEE_RATE",
+                                             str(0.25 * float(os.environ.get("WCP_KALSHI_FEE_RATE", "0.07")))))
 # Don't post a maker quote on noise: skip a market whose fair YES prob is below this (a
 # 2'-cameo defender at ~0% shouldn't be quoted). The high-prob (NO) side of a near-cert
 # is still suppressed automatically when its acceptable price floors below 1c.
@@ -132,3 +146,42 @@ UNDERDOG_URL = os.environ.get(
 PRIZEPICKS_URL = os.environ.get(
     "WCP_PRIZEPICKS_URL", "https://api.prizepicks.com/projections?league_id=241&per_page=500")
 REPORT_HTML = OUT_DIR / "report.html"
+
+# Interactive board (board.py + webapp.py /scorers): the pickle is the last pipeline's
+# (b365, proj) so the web process can re-price minutes without re-running the model
+# subprocess; the JSON holds manual minutes overrides (persist + auto-expire at kickoff).
+BOARD_STATE_PKL = OUT_DIR / "board_state.pkl"
+MINUTES_OVERRIDES_JSON = DATA_DIR / "minutes_overrides.json"
+# manual-XI escape hatch: forces a match 'confirmed' with a hand-entered starting XI
+# (resolved to board norm_names + minutes) when API-Football's lineup feed lags the
+# real announcement. Auto-expires at kickoff, same as the minutes overrides.
+MANUAL_XI_JSON = DATA_DIR / "manual_xi.json"
+
+# Hand-maintained name aliases for book<->model<->Kalshi seams that NO string matcher can
+# bridge — different given names for the same player (bet365 'Kouadio Kone' vs API-Football
+# 'Manu Kone', both = Kouadio Manu Kone). Flat JSON map of norm_name -> canonical norm_name;
+# the board treats the two as the same player. Extend it as new seams surface.
+NAME_ALIASES_JSON = DATA_DIR / "name_aliases.json"
+
+# Scorers/Kalshi board live-price blend: the board combines bet365 and Underdog ANYTIME
+# hazards BEFORE the minutes engine prices them. Both are "given he features" numbers (UD
+# voids on a no-play, same as the bet365 anytime book), so they blend on the same basis.
+# Only players Underdog actually covers for that stat get the UD share; everyone else stays
+# 100% bet365. Default 65/35 b365/UD (UD has a sharp internal model but thin coverage).
+BOARD_BLEND_W_UD = float(os.environ.get("WCP_BOARD_W_UD", "0.35"))
+BOARD_BLEND_W_B365 = 1.0 - BOARD_BLEND_W_UD
+# One-sided UD line handling (only 'higher' posted, no opposing side to de-vig against): we
+# still use it — it implies a price — but assume it's vigged ~UD_ONEWAY_VIG_MULT× a balanced
+# two-way UD book and de-vig by that assumed overround. The balanced overround is measured from
+# the slate's two-sided UD lines each run, falling back to UD_BASELINE_OVERROUND when too few.
+UD_ONEWAY_VIG_MULT = float(os.environ.get("WCP_UD_ONEWAY_VIG_MULT", "1.5"))
+UD_BASELINE_OVERROUND = float(os.environ.get("WCP_UD_BASELINE_OVERROUND", "1.06"))
+
+# Trade ledger (trades.py): every Kalshi order we actually PLACE is appended to the
+# JSONL with its full pricing context (our fair, price paid, mode, source, minutes +
+# raw hazard assumed, live book) so we can later match each take to the realized
+# match result and score our edges. Append-only — never rewritten. resolve() joins
+# outcomes and writes the settled view (parquet + a CSV for eyeballing).
+TRADES_LOG = DATA_DIR / "trades" / "fills.jsonl"
+TRADES_SETTLED = DATA_DIR / "trades" / "settled.parquet"
+TRADES_CSV = OUT_DIR / "trades.csv"
